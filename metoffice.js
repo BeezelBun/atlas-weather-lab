@@ -1,7 +1,9 @@
-/* Met Office DataHub Map Images full-screen preview v0.3.0
+/* Met Office DataHub Map Images full-screen preview v0.3.1
+   - Restores provider navigation on the full-screen page.
    - Uses locally saved Map Images key/API Order ID.
    - Caches the order file list so the order does not relist hundreds of files every view.
-   - Shows one selected PNG at a time with side layer buttons and a frame slider.
+   - Shows one selected PNG at a time with layer buttons and the full available model time extent.
+   - Parses Met Office filenames using ts0/ts1/ts168 style time steps.
    - Repaints rainfall images into an Atlas blue-only overlay palette.
    - Does not commit keys or order data to GitHub.
 */
@@ -54,6 +56,7 @@
     legend: document.getElementById("metOfficeLegend"),
     frameTitle: document.getElementById("metOfficeFrameTitle"),
     frameLabel: document.getElementById("metOfficeFrameLabel"),
+    frameMeta: document.getElementById("metOfficeFrameMeta"),
     frameSlider: document.getElementById("metOfficeFrameSlider"),
     prevFrame: document.getElementById("prevFrameButton"),
     nextFrame: document.getElementById("nextFrameButton"),
@@ -72,9 +75,9 @@
 
   let fileIds = [];
   let layerFiles = [];
-  let timeSteps = [];
+  let frames = [];
   let selectedLayer = localStorage.getItem(STORAGE.layer) || "rainfall";
-  let selectedStep = localStorage.getItem(STORAGE.timeStep) || "+00";
+  let selectedFrameKey = localStorage.getItem(STORAGE.timeStep) || "000";
   let selectedFileId = "";
   let imageObjectUrl = "";
   let loadingImage = false;
@@ -97,17 +100,15 @@
 
     els.frameSlider.addEventListener("input", () => {
       const index = Number(els.frameSlider.value || 0);
-      selectedStep = timeSteps[index] || selectedStep;
-      localStorage.setItem(STORAGE.timeStep, selectedStep);
+      selectedFrameKey = frames[index]?.key || selectedFrameKey;
+      localStorage.setItem(STORAGE.timeStep, selectedFrameKey);
       chooseSelectedFile();
       updateFrameUi();
     });
 
     els.frameSlider.addEventListener("change", () => previewSelectedFile());
-
     els.prevFrame.addEventListener("click", () => bumpFrame(-1));
     els.nextFrame.addEventListener("click", () => bumpFrame(1));
-
     els.refreshButton.addEventListener("click", () => loadOrder({ forceRefresh: true, previewAfter: true }));
 
     els.forgetButton.addEventListener("click", () => {
@@ -161,6 +162,7 @@
 
     els.order.value = orderId || els.order.value.trim();
     localStorage.setItem(STORAGE.layer, selectedLayer);
+    localStorage.setItem(STORAGE.timeStep, selectedFrameKey);
   }
 
   function forgetSavedKey() {
@@ -174,13 +176,15 @@
 
     fileIds = [];
     layerFiles = [];
-    timeSteps = [];
+    frames = [];
     selectedFileId = "";
+    selectedFrameKey = "000";
     els.key.value = "";
     els.order.value = "maps-uk1";
     els.image.hidden = true;
     els.placeholder.hidden = false;
     els.frameSlider.disabled = true;
+    els.frameMeta.textContent = "Full model extent will appear after the order list loads.";
     setStatus("Saved key removed", "Paste the Map Images key again when needed. Cached file list was removed for the current order.");
     updateSavedNote("Saved key/order removed from this browser.");
   }
@@ -263,47 +267,72 @@
   function rebuildLayerFiles() {
     const matcher = LAYERS[selectedLayer].matcher;
     layerFiles = fileIds.filter((fileId) => matcher.test(fileId));
-    timeSteps = unique(layerFiles.map(extractTimeStep)).filter(Boolean).sort(sortTimeSteps);
+    frames = buildFrameList(layerFiles);
 
-    if (!timeSteps.length) {
+    if (!frames.length) {
       selectedFileId = "";
       els.frameSlider.disabled = true;
       els.frameSlider.min = "0";
       els.frameSlider.max = "0";
       els.frameSlider.value = "0";
       els.frameLabel.textContent = fileIds.length ? "No matching files" : "Load order first";
+      els.frameMeta.textContent = fileIds.length ? LAYERS[selectedLayer].empty : "Full model extent will appear after the order list loads.";
       if (fileIds.length) setStatus("Layer unavailable", LAYERS[selectedLayer].empty);
       return;
     }
 
-    if (!timeSteps.includes(selectedStep)) {
-      selectedStep = timeSteps.includes("+00") ? "+00" : timeSteps[0];
-      localStorage.setItem(STORAGE.timeStep, selectedStep);
+    const savedKey = localStorage.getItem(STORAGE.timeStep);
+    if (savedKey && frames.some((frame) => frame.key === savedKey)) {
+      selectedFrameKey = savedKey;
+    } else if (!frames.some((frame) => frame.key === selectedFrameKey)) {
+      selectedFrameKey = frames.some((frame) => frame.key === "000") ? "000" : frames[0].key;
     }
 
+    localStorage.setItem(STORAGE.timeStep, selectedFrameKey);
     chooseSelectedFile();
     updateFrameUi();
   }
 
+  function buildFrameList(files) {
+    const byKey = new Map();
+    for (const fileId of files) {
+      const info = extractFrameInfo(fileId);
+      if (!byKey.has(info.key)) byKey.set(info.key, info);
+    }
+    return [...byKey.values()].sort((a, b) => a.hours - b.hours);
+  }
+
   function chooseSelectedFile() {
-    selectedFileId = layerFiles.find((fileId) => extractTimeStep(fileId) === selectedStep) || layerFiles[0] || "";
+    const currentFrame = frames.find((frame) => frame.key === selectedFrameKey) || frames[0];
+    selectedFileId = currentFrame?.fileId || layerFiles[0] || "";
   }
 
   function updateFrameUi() {
-    const index = Math.max(0, timeSteps.indexOf(selectedStep));
-    els.frameSlider.disabled = timeSteps.length <= 1;
+    const index = Math.max(0, frames.findIndex((frame) => frame.key === selectedFrameKey));
+    const frame = frames[index] || frames[0];
+    els.frameSlider.disabled = frames.length <= 1;
     els.frameSlider.min = "0";
-    els.frameSlider.max = String(Math.max(0, timeSteps.length - 1));
+    els.frameSlider.max = String(Math.max(0, frames.length - 1));
     els.frameSlider.value = String(index);
-    els.frameLabel.textContent = selectedFileId ? `Model ${selectedStep} Â· ${selectedFileId}` : "No selected file";
+
+    if (!frame) {
+      els.frameLabel.textContent = "No selected file";
+      els.frameMeta.textContent = "No model frames matched this layer.";
+      return;
+    }
+
+    const first = frames[0];
+    const last = frames[frames.length - 1];
+    els.frameLabel.textContent = `${frame.label} Â· ${index + 1}/${frames.length}`;
+    els.frameMeta.textContent = `${first.label} to ${last.label}${frame.runLabel ? ` Â· run ${frame.runLabel}` : ""} Â· ${selectedFileId}`;
   }
 
   function bumpFrame(delta) {
-    if (!timeSteps.length) return;
-    const currentIndex = Math.max(0, timeSteps.indexOf(selectedStep));
-    const nextIndex = clamp(currentIndex + delta, 0, timeSteps.length - 1);
-    selectedStep = timeSteps[nextIndex];
-    localStorage.setItem(STORAGE.timeStep, selectedStep);
+    if (!frames.length) return;
+    const currentIndex = Math.max(0, frames.findIndex((frame) => frame.key === selectedFrameKey));
+    const nextIndex = clamp(currentIndex + delta, 0, frames.length - 1);
+    selectedFrameKey = frames[nextIndex].key;
+    localStorage.setItem(STORAGE.timeStep, selectedFrameKey);
     chooseSelectedFile();
     updateFrameUi();
     previewSelectedFile();
@@ -425,7 +454,6 @@
     const blueSignal = Math.max(0, b - r) / 255;
     const cyanSignal = Math.max(0, Math.min(g, b) - r) / 255;
     const warmSignal = Math.max(0, r - b) / 255;
-
     return clamp((darkness * 0.58) + (saturation * 0.22) + (blueSignal * 0.18) + (cyanSignal * 0.12) + (warmSignal * 0.08), 0, 1);
   }
 
@@ -450,20 +478,26 @@
     return file?.fileId || file?.filename || file?.name || file?.id || "";
   }
 
-  function extractTimeStep(fileId) {
-    const match = String(fileId).match(/(?:_|\b)([+]?\d{2,3})(?:\.[a-z0-9]+)?$/i);
-    if (!match) return "unknown";
-    const raw = match[1].replace(/^\+/, "");
-    return `+${raw.padStart(2, "0")}`;
+  function extractFrameInfo(fileId) {
+    const text = String(fileId || "");
+    const tsMatch = text.match(/(?:^|[_-])ts(\d{1,3})(?:[_-]|$)/i);
+    const plusMatch = text.match(/(?:^|[_-])\+?(\d{1,3})(?:\.[a-z0-9]+)?$/i);
+    const hours = Number(tsMatch?.[1] ?? plusMatch?.[1] ?? 0);
+    const safeHours = Number.isFinite(hours) ? hours : 0;
+    const runMatch = text.match(/(?:^|[_-])(20\d{8})(?:\.[a-z0-9]+)?$/);
+    return {
+      key: String(safeHours).padStart(3, "0"),
+      hours: safeHours,
+      label: `T+${safeHours}h`,
+      runLabel: runMatch ? formatModelRun(runMatch[1]) : "",
+      fileId: text
+    };
   }
 
-  function sortTimeSteps(a, b) {
-    return timeStepNumber(a) - timeStepNumber(b);
-  }
-
-  function timeStepNumber(step) {
-    const parsed = Number(String(step).replace("+", ""));
-    return Number.isFinite(parsed) ? parsed : 9999;
+  function formatModelRun(value) {
+    const text = String(value || "");
+    if (!/^20\d{8}$/.test(text)) return text;
+    return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)} ${text.slice(8, 10)}Z`;
   }
 
   function normaliseOrderId(value) {
@@ -521,11 +555,12 @@
   }
 
   function disableButtons(disabled) {
-    els.refreshButton.disabled = disabled;
-    els.saveButton.disabled = disabled;
-    els.prevFrame.disabled = disabled || !timeSteps.length;
-    els.nextFrame.disabled = disabled || !timeSteps.length;
     els.layerButtons.forEach((button) => { button.disabled = disabled; });
+    els.refreshButton.disabled = disabled;
+    els.forgetButton.disabled = disabled;
+    els.prevFrame.disabled = disabled || frames.length <= 1;
+    els.nextFrame.disabled = disabled || frames.length <= 1;
+    els.frameSlider.disabled = disabled || frames.length <= 1;
   }
 
   function clearImageUrl() {
@@ -542,7 +577,7 @@
   }
 
   function escapeHtml(value) {
-    return String(value).replace(/[&<>\"]/g, (char) => ({
+    return String(value).replace(/[&<>"]/g, (char) => ({
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
