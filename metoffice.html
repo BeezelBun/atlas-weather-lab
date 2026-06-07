@@ -3,36 +3,81 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Met Office DataHub · Atlas Weather API Lab</title>
-  <link rel="stylesheet" href="styles.css?v=0.2.7" />
+  <title>Met Office Map Images · Atlas Weather API Lab</title>
+  <link rel="stylesheet" href="styles.css?v=0.2.9" />
 </head>
-<body>
-  <main class="lab-shell page-shell" data-page="metoffice">
-    <header class="lab-header">
-      <a class="back-link" href="index.html">Lab home</a>
-      <div>
-        <p class="eyebrow">Provider test</p>
-        <h1>Met Office DataHub</h1>
-      </div>
-      <span class="version-pill">v0.2.8</span>
-    </header>
-
-    <nav class="page-tabs" aria-label="Weather lab pages">
-      <a href="rainviewer.html">Radar</a>
-      <a href="openmeteo.html">Sites</a>
-      <a class="is-active" href="metoffice.html">Met Office</a>
-      <a href="ea-rainfall.html">Gauges</a>
-    </nav>
-
-    <section class="hero-card metoffice-hero">
-      <div class="hero-icon" aria-hidden="true">🛰️</div>
-      <div>
-        <h2>Map Images order test</h2>
-        <p>Stores the key locally on this device, lists the order once, caches the file list, then previews the selected layer without downloading every image.</p>
+<body class="metoffice-full-page">
+  <main class="lab-shell" data-page="metoffice">
+    <section class="metoffice-stage" aria-label="Met Office map preview">
+      <img id="metOfficeImage" class="metoffice-image" alt="Met Office Map Images preview" hidden />
+      <div id="metOfficePlaceholder" class="metoffice-empty-state">
+        <strong>Met Office Map Images</strong>
+        <span>Paste the Map Images key and API Order ID once. The page saves them locally on this device, caches the order list, then previews one selected image at a time.</span>
       </div>
     </section>
 
-    <section class="form-card">
+    <header class="metoffice-viewport-header">
+      <a class="shell-button" href="index.html" aria-label="Back to lab home">‹</a>
+      <div class="title-box">
+        <p class="eyebrow">Provider test</p>
+        <h1>Met Office Maps</h1>
+      </div>
+      <button class="shell-button" id="openMetOfficeSettings" type="button" aria-label="Open Met Office settings">⚙</button>
+    </header>
+
+    <section class="metoffice-status-card" id="metOfficeStatus" aria-live="polite">
+      <strong>Waiting for setup</strong>
+      Saved Map Images key/order will auto-load from this browser if already stored.
+    </section>
+
+    <nav class="metoffice-control-stack" aria-label="Met Office layers">
+      <button class="metoffice-layer-button is-active" type="button" data-layer="rainfall">
+        <span class="layer-icon" aria-hidden="true">🌧</span>
+        <span class="layer-text">Rainfall</span>
+      </button>
+      <button class="metoffice-layer-button" type="button" data-layer="cloud">
+        <span class="layer-icon" aria-hidden="true">☁</span>
+        <span class="layer-text">Cloud</span>
+      </button>
+      <button class="metoffice-layer-button" type="button" data-layer="pressure">
+        <span class="layer-icon" aria-hidden="true">⏱</span>
+        <span class="layer-text">Pressure</span>
+      </button>
+      <button class="metoffice-layer-button" type="button" data-layer="temperature">
+        <span class="layer-icon" aria-hidden="true">🌡</span>
+        <span class="layer-text">Temp</span>
+      </button>
+      <button class="metoffice-mini-button" id="refreshOrderButton" type="button">Refresh list</button>
+      <button class="metoffice-mini-button" id="forgetLocalButton" type="button">Forget key</button>
+    </nav>
+
+    <section class="metoffice-frame-panel" aria-label="Met Office time step control">
+      <div class="metoffice-frame-head">
+        <strong id="metOfficeFrameTitle">Model frame</strong>
+        <span id="metOfficeFrameLabel">Load order first</span>
+      </div>
+      <div class="metoffice-frame-range">
+        <button type="button" id="prevFrameButton" aria-label="Previous Met Office frame">‹</button>
+        <input id="metOfficeFrameSlider" type="range" min="0" max="0" value="0" disabled />
+        <button type="button" id="nextFrameButton" aria-label="Next Met Office frame">›</button>
+      </div>
+    </section>
+
+    <aside class="metoffice-legend" id="metOfficeLegend">
+      <strong>Map image</strong>
+      <span>PNG model layer from the selected Map Images order.</span>
+    </aside>
+
+    <section class="metoffice-settings-panel" id="metOfficeSettingsPanel" aria-label="Met Office setup" hidden>
+      <div class="metoffice-settings-head">
+        <div>
+          <p class="eyebrow">Local setup</p>
+          <h2>Met Office key</h2>
+          <p>The key/order are stored only in this browser. Nothing is committed to GitHub.</p>
+        </div>
+        <button class="metoffice-settings-close" id="closeMetOfficeSettings" type="button" aria-label="Close settings">×</button>
+      </div>
+
       <label class="input-row">
         <span>API key</span>
         <input id="metOfficeKey" type="password" autocomplete="off" placeholder="Paste Map Images key" />
@@ -43,56 +88,16 @@
         <input id="metOfficeOrder" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="maps-uk1" />
       </label>
 
-      <div class="button-stack inline-buttons">
-        <button class="secondary-action" id="saveLocalButton">Save locally</button>
-        <button class="secondary-action" id="forgetLocalButton">Forget saved key</button>
+      <div class="metoffice-settings-actions">
+        <button class="primary-action" id="saveLocalButton" type="button">Save & load</button>
+        <button class="secondary-action" id="closeSetupButton" type="button">Close</button>
       </div>
 
-      <label class="input-row">
-        <span>Layer</span>
-        <select id="metOfficeLayer">
-          <option value="rainfall">Rainfall / precipitation</option>
-          <option value="cloud">Cloud cover</option>
-          <option value="pressure">Pressure</option>
-          <option value="temperature">Temperature</option>
-          <option value="all">All files / manual first match</option>
-        </select>
-      </label>
-
-      <label class="input-row">
-        <span>Time step</span>
-        <select id="metOfficeTimeStep" disabled>
-          <option value="">Load order first</option>
-        </select>
-      </label>
-
-      <div class="button-stack inline-buttons">
-        <button class="primary-action" id="testOrderButton">Use cached/list order</button>
-        <button class="secondary-action" id="refreshOrderButton">Refresh file list</button>
-      </div>
-
-      <div class="button-stack inline-buttons">
-        <button class="primary-action" id="previewButton" disabled>Preview selected layer</button>
-        <button class="secondary-action" id="clearButton">Clear output</button>
-      </div>
-
-      <p class="source-note" id="metOfficeStorageNote">Key/order are not saved in GitHub. They are only saved in this browser if you tap save or run a test.</p>
-
-      <div class="metoffice-output" id="metOfficeOutput">No Met Office request made yet.</div>
-    </section>
-
-    <section class="decision-card small">
-      <h2>Pass/fail meaning</h2>
-      <ul>
-        <li><strong>Order lists files:</strong> credentials/API Order ID are working.</li>
-        <li><strong>Image previews:</strong> static web integration may be possible.</li>
-        <li><strong>Cached file list:</strong> avoids re-listing hundreds of filenames every time.</li>
-        <li><strong>CORS/browser failure:</strong> final Atlas needs a tiny proxy/backend or native iOS networking.</li>
-      </ul>
+      <p class="source-note" id="metOfficeStorageNote">Key/order are not saved in GitHub.</p>
     </section>
   </main>
 
   <script src="app.js?v=0.2.7"></script>
-  <script src="metoffice.js?v=0.2.8"></script>
+  <script src="metoffice.js?v=0.3.0"></script>
 </body>
 </html>
