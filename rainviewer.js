@@ -1,16 +1,18 @@
-/* RainViewer standalone test page v0.2.4
-   Repaints RainViewer Universal Blue radar tiles in-browser:
-   - normal/light rain stays blue/cyan
-   - warm yellow/orange heavy-intensity cores become electric purple
+/* RainViewer standalone test page v0.2.6
+   Auto-loads the latest observed radar frame at 95% opacity.
+   The top pill is now the observed-frame slider.
+   Rain is kept blue/cyan; warm RainViewer core pixels are cooled into bright blue-white.
 */
 
 (() => {
   const Lab = window.AtlasWeatherLab;
   const RAINVIEWER_API = "https://api.rainviewer.com/public/weather-maps.json";
   const RAINVIEWER_FREE_COLOUR_SCHEME = 2;
+  const DEFAULT_OPACITY = 0.95;
 
   const state = {
     frames: [],
+    hourlyFrames: [],
     radarLayer: null,
     recolourFallbackWarned: false
   };
@@ -21,13 +23,13 @@
     clearRadarButton: document.getElementById("clearRadarButton"),
     radarFrameRange: document.getElementById("radarFrameRange"),
     radarTimeLabel: document.getElementById("radarTimeLabel"),
-    radarOpacityRange: document.getElementById("radarOpacityRange"),
+    radarFrameCount: document.getElementById("radarFrameCount"),
     radarOpacityLabel: document.getElementById("radarOpacityLabel")
   };
 
   const map = Lab.createBaseMap("map", { center: [54.1, -3.1], zoom: 6 });
 
-  const HazardRepaintRadarLayer = L.TileLayer.extend({
+  const BlueRadarLayer = L.TileLayer.extend({
     createTile(coords, done) {
       const tile = document.createElement("canvas");
       const size = this.getTileSize();
@@ -47,12 +49,10 @@
           repaintRadarPixels(imageData.data);
           ctx.putImageData(imageData, 0, 0);
         } catch (error) {
-          // Keep the radar visible if a browser blocks pixel reads.
-          // This fallback cannot selectively target yellow/orange, but it still pushes the layer cooler.
-          tile.style.filter = "url(#atlasSoftBlueRadar) saturate(1.25) hue-rotate(10deg)";
+          tile.style.filter = "url(#atlasSoftBlueRadar) saturate(1.18)";
           if (!state.recolourFallbackWarned) {
             state.recolourFallbackWarned = true;
-            setStatus("Radar loaded. Browser blocked exact pixel repaint, so blue fallback is being used.");
+            setStatus("Observed radar loaded. Browser blocked exact blue repaint, so fallback blue filter is being used.");
           }
         }
 
@@ -66,22 +66,25 @@
   });
 
   bindEvents();
-  setStatus("Ready. Load RainViewer frames to show the latest radar blob tile layer.");
+  initialiseRadar();
 
   function bindEvents() {
-    els.loadRadarButton.addEventListener("click", loadFrames);
-    els.clearRadarButton.addEventListener("click", clearOverlay);
-    els.radarFrameRange.addEventListener("input", () => showFrame(Number(els.radarFrameRange.value)));
-    els.radarOpacityRange.addEventListener("input", () => {
-      const opacity = Number(els.radarOpacityRange.value) / 100;
-      els.radarOpacityLabel.textContent = `${els.radarOpacityRange.value}%`;
-      if (state.radarLayer) state.radarLayer.setOpacity(opacity);
-    });
+    els.loadRadarButton?.addEventListener("click", () => loadFrames({ manual: true }));
+    els.clearRadarButton?.addEventListener("click", clearOverlay);
+    els.radarFrameRange?.addEventListener("input", () => showFrame(Number(els.radarFrameRange.value)));
   }
 
-  async function loadFrames() {
-    els.loadRadarButton.disabled = true;
-    setStatus("Loading RainViewer framesâ¦");
+  async function initialiseRadar() {
+    setFixedOpacityLabel();
+    setStatus("Loading latest observed RainViewer radar automatically...");
+    await loadFrames({ manual: false });
+  }
+
+  async function loadFrames({ manual } = { manual: false }) {
+    if (els.loadRadarButton) {
+      els.loadRadarButton.disabled = true;
+      els.loadRadarButton.textContent = manual ? "Reloading observed radar..." : "Loading observed radar...";
+    }
 
     try {
       const response = await fetch(RAINVIEWER_API, { cache: "no-store" });
@@ -89,38 +92,75 @@
 
       const data = await response.json();
       const frames = data?.radar?.past || [];
-      if (!frames.length) throw new Error("No radar frames returned.");
+      if (!frames.length) throw new Error("No observed radar frames returned.");
 
       state.frames = frames.map(frame => ({ ...frame, host: data.host }));
-      els.radarFrameRange.max = String(state.frames.length - 1);
-      els.radarFrameRange.value = String(state.frames.length - 1);
-      showFrame(state.frames.length - 1);
-      setStatus(`${state.frames.length} radar frames loaded. Heavy yellow/orange cores are repainted purple; lighter rain stays blue.`);
+      state.hourlyFrames = makeHourlyFrames(state.frames);
+
+      const sliderFrames = getSliderFrames();
+      const latestIndex = Math.max(0, sliderFrames.length - 1);
+
+      if (els.radarFrameRange) {
+        els.radarFrameRange.min = "0";
+        els.radarFrameRange.max = String(latestIndex);
+        els.radarFrameRange.value = String(latestIndex);
+      }
+
+      showFrame(latestIndex);
+      updateFrameCountLabel();
+      setStatus(`${state.frames.length} observed radar frames loaded. Top slider uses hourly observed points, and the latest observed frame is shown at 95% opacity.`);
     } catch (error) {
       setStatus(`RainViewer failed: ${error.message}`);
     } finally {
-      els.loadRadarButton.disabled = false;
+      if (els.loadRadarButton) {
+        els.loadRadarButton.disabled = false;
+        els.loadRadarButton.textContent = "Reload observed radar";
+      }
     }
   }
 
+  function makeHourlyFrames(frames) {
+    const byHour = new Map();
+
+    frames.forEach(frame => {
+      const date = new Date(frame.time * 1000);
+      const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`;
+      byHour.set(key, frame); // keep the latest frame within each local hour
+    });
+
+    const hourly = [...byHour.values()].sort((a, b) => a.time - b.time);
+    const latest = frames[frames.length - 1];
+
+    if (latest && hourly[hourly.length - 1]?.time !== latest.time) {
+      hourly.push(latest);
+    }
+
+    return hourly.length ? hourly : frames;
+  }
+
+  function getSliderFrames() {
+    return state.hourlyFrames.length ? state.hourlyFrames : state.frames;
+  }
+
   function showFrame(index) {
-    const frame = state.frames[index];
+    const sliderFrames = getSliderFrames();
+    const frame = sliderFrames[index];
     if (!frame) return;
 
     if (state.radarLayer) map.removeLayer(state.radarLayer);
 
-    const opacity = Number(els.radarOpacityRange.value) / 100;
     const tileUrl = `${frame.host}${frame.path}/256/{z}/{x}/{y}/${RAINVIEWER_FREE_COLOUR_SCHEME}/1_1.png`;
 
-    state.radarLayer = new HazardRepaintRadarLayer(tileUrl, {
-      opacity,
+    state.radarLayer = new BlueRadarLayer(tileUrl, {
+      opacity: DEFAULT_OPACITY,
       maxZoom: 19,
       maxNativeZoom: 7,
       pane: "tilePane",
       attribution: "RainViewer radar"
     }).addTo(map);
 
-    els.radarTimeLabel.textContent = Lab.formatTime(frame.time);
+    if (els.radarTimeLabel) els.radarTimeLabel.textContent = Lab.formatTime(frame.time);
+    updateFrameCountLabel(index);
   }
 
   function repaintRadarPixels(data) {
@@ -135,29 +175,29 @@
       const min = Math.min(red, green, blue);
       const saturation = max - min;
 
-      const isYellow = red > 145 && green > 118 && blue < 155 && red + green > 285;
-      const isOrange = red > 155 && green > 55 && green < 205 && blue < 150 && red > blue + 45;
-      const isRed = red > 165 && green < 120 && blue < 125 && red > green + 40;
-      const isWarmRadarPixel = saturation > 38 && (isYellow || isOrange || isRed);
+      const isYellow = red > 145 && green > 115 && blue < 160 && red + green > 280;
+      const isOrange = red > 150 && green > 55 && green < 210 && blue < 160 && red > blue + 40;
+      const isRed = red > 165 && green < 130 && blue < 140 && red > green + 35;
+      const isWarmRadarPixel = saturation > 35 && (isYellow || isOrange || isRed);
 
       if (!isWarmRadarPixel) continue;
 
       const brightness = (red + green + blue) / 3;
+      const strength = Math.min(1, Math.max(0, (brightness - 90) / 145));
       const heavyCore = red > 190 || brightness > 145 || isRed;
-      const strength = Math.min(1, Math.max(0, (max - 95) / 160));
 
       if (heavyCore) {
-        // Heavy rain cores: visible purple so they read as hazard/high intensity, not sunny yellow.
-        data[index] = Math.round(132 + 82 * strength);      // R
-        data[index + 1] = Math.round(60 + 42 * strength);   // G
-        data[index + 2] = Math.round(226 + 29 * strength);  // B
-        data[index + 3] = Math.max(alpha, 176);             // A
+        // Heavy rain is still rain: make the core bright blue-white, not yellow/orange/purple.
+        data[index] = Math.round(155 + 55 * strength);
+        data[index + 1] = Math.round(232 + 23 * strength);
+        data[index + 2] = 255;
+        data[index + 3] = Math.max(alpha, 184);
       } else {
-        // Softer warm fringe: cool it back into the blue rain palette.
-        data[index] = Math.round(76 + 42 * strength);       // R
-        data[index + 1] = Math.round(210 + 34 * strength);  // G
-        data[index + 2] = 255;                              // B
-        data[index + 3] = Math.max(alpha, 156);             // A
+        // Warm fringes become normal cyan-blue rain.
+        data[index] = Math.round(60 + 45 * strength);
+        data[index + 1] = Math.round(198 + 44 * strength);
+        data[index + 2] = 255;
+        data[index + 3] = Math.max(alpha, 150);
       }
     }
   }
@@ -165,11 +205,22 @@
   function clearOverlay() {
     if (state.radarLayer) map.removeLayer(state.radarLayer);
     state.radarLayer = null;
-    els.radarTimeLabel.textContent = "â";
-    setStatus("Radar overlay cleared. Frames stay available until refresh or reload.");
+    if (els.radarTimeLabel) els.radarTimeLabel.textContent = "--:--";
+    setStatus("Observed radar overlay cleared. Reload observed radar to restore the latest frame.");
+  }
+
+  function updateFrameCountLabel(index) {
+    if (!els.radarFrameCount) return;
+    const sliderFrames = getSliderFrames();
+    const current = Number.isFinite(Number(index)) ? Number(index) + 1 : sliderFrames.length;
+    els.radarFrameCount.textContent = `${current}/${sliderFrames.length} hourly`;
+  }
+
+  function setFixedOpacityLabel() {
+    if (els.radarOpacityLabel) els.radarOpacityLabel.textContent = "95%";
   }
 
   function setStatus(text) {
-    els.statusText.textContent = text;
+    if (els.statusText) els.statusText.textContent = text;
   }
 })();
