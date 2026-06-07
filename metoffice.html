@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Met Office DataHub · Atlas Weather API Lab</title>
+  <link rel="stylesheet" href="styles.css?v=0.2.0" />
+</head>
+<body>
+  <main class="lab-shell page-shell" data-page="metoffice">
+    <header class="lab-header">
+      <a class="back-link" href="index.html">Lab home</a>
+      <div>
+        <p class="eyebrow">Provider test</p>
+        <h1>Met Office DataHub</h1>
+      </div>
+      <span class="version-pill">v0.2.0</span>
+    </header>
+
+    <nav class="page-tabs" aria-label="Weather lab pages">
+      <a href="rainviewer.html">Radar</a>
+      <a href="openmeteo.html">Sites</a>
+      <a class="is-active" href="metoffice.html">Met Office</a>
+      <a href="ea-rainfall.html">Gauges</a>
+    </nav>
+
+    <section class="hero-card metoffice-hero">
+      <div class="hero-icon" aria-hidden="true">🛰</div>
+      <div>
+        <h2>Map Images order test</h2>
+        <p>This tests whether a Met Office DataHub Map Images order can be reached from a public GitHub Pages app, or whether Atlas needs a proxy/native app layer.</p>
+      </div>
+    </section>
+
+    <section class="form-card">
+      <label class="input-row">
+        <span>API key</span>
+        <input id="metOfficeKey" type="password" autocomplete="off" placeholder="Paste key for this browser test" />
+      </label>
+      <label class="input-row">
+        <span>Order name</span>
+        <input id="metOfficeOrder" autocomplete="off" placeholder="Map Images order name" />
+      </label>
+      <div class="button-stack inline-buttons">
+        <button class="primary-action" id="testOrderButton">Test latest order</button>
+        <button class="secondary-action" id="clearButton">Clear output</button>
+      </div>
+      <div class="metoffice-output" id="metOfficeOutput">No Met Office request made yet.</div>
+    </section>
+
+    <section class="decision-card small">
+      <h2>Pass/fail meaning</h2>
+      <ul>
+        <li><strong>Order lists files:</strong> credentials/order name are working.</li>
+        <li><strong>Image previews:</strong> static web integration may be possible.</li>
+        <li><strong>CORS/browser failure:</strong> final Atlas needs a tiny proxy/backend or native iOS networking.</li>
+      </ul>
+    </section>
+  </main>
+
+  <script src="app.js?v=0.2.0"></script>
+  <script src="metoffice.js?v=0.2.0"></script>
+</body>
+</html>
