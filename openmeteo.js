@@ -1,5 +1,5 @@
-/* Open-Meteo visible-site risk page v0.2.6
-   Maximum-feature site detail tester. Intentionally over-informative so the final Atlas card can be cut down later.
+/* Open-Meteo visible-site risk page v0.2.7
+   Maximum-feature site detail tester. v0.2.7 tightens hazard thresholds so orange/red only mean serious conditions.
 */
 
 (() => {
@@ -158,7 +158,7 @@
       }
 
       const marker = L.marker([site.lat, site.lon], {
-        icon: Lab.createDivIcon(`<div class="site-dot wx-${visual.state} risk-score-${risk.score || 0}">${visual.icon}</div>`, [32, 32], [16, 16])
+        icon: Lab.createDivIcon(`<div class="site-dot wx-${visual.state} risk-level-${risk.level || "none"} risk-score-${risk.score || 0}">${visual.icon}</div>`, [32, 32], [16, 16])
       }).addTo(state.siteLayer);
 
       marker.on("click", () => openSiteDetail(site, risk));
@@ -353,7 +353,7 @@
       currentRisk: { score: 0, label: "Not loaded", reasons: [] },
       nextRisk: { score: 0, label: "Not loaded", reasons: [] },
       summary: "Site weather not loaded",
-      detail: "Tap Fetch risk to request live values.",
+      detail: "Auto-fetch waiting for visible site values.",
       values: {},
       visual: { state: "unloaded", label: "Not loaded", icon: "", color: "#607080" },
       hourlyRows: [],
@@ -434,67 +434,68 @@
 
   function gustRisk(value, label) {
     const gust = number(value);
-    if (gust >= 55) return { score: 4, reason: `${label}: ${fmt(gust)} mph. Severe exposure risk.` };
-    if (gust >= 42) return { score: 3, reason: `${label}: ${fmt(gust)} mph. High gust risk.` };
-    if (gust >= 30) return { score: 2, reason: `${label}: ${fmt(gust)} mph. Watch for exposed sites.` };
-    if (gust >= 22) return { score: 1, reason: `${label}: ${fmt(gust)} mph. Breezy.` };
+    if (gust >= 65) return { score: 4, reason: `${label}: ${fmt(gust)} mph. Extreme exposed-site risk.` };
+    if (gust >= 55) return { score: 3, reason: `${label}: ${fmt(gust)} mph. Do not treat exposed work as safe.` };
+    if (gust >= 35) return { score: 2, reason: `${label}: ${fmt(gust)} mph. Serious exposed-site consideration.` };
+    if (gust >= 28) return { score: 1, reason: `${label}: ${fmt(gust)} mph. Breezy/watch.` };
     return null;
   }
 
   function windRisk(value, label) {
     const wind = number(value);
-    if (wind >= 42) return { score: 3, reason: `${label}: ${fmt(wind)} mph sustained wind.` };
-    if (wind >= 30) return { score: 2, reason: `${label}: ${fmt(wind)} mph sustained wind.` };
-    if (wind >= 22) return { score: 1, reason: `${label}: ${fmt(wind)} mph sustained wind.` };
+    if (wind >= 48) return { score: 3, reason: `${label}: ${fmt(wind)} mph sustained wind. Do not treat exposed work as safe.` };
+    if (wind >= 32) return { score: 2, reason: `${label}: ${fmt(wind)} mph sustained wind. Serious exposed-site consideration.` };
+    if (wind >= 24) return { score: 1, reason: `${label}: ${fmt(wind)} mph sustained wind. Watch.` };
     return null;
   }
 
   function rainRisk(value, label) {
     const rain = number(value);
-    if (rain >= 8) return { score: 4, reason: `${label}: ${fmt(rain)} mm/h. Very heavy rain.` };
-    if (rain >= 4) return { score: 3, reason: `${label}: ${fmt(rain)} mm/h. Heavy rain.` };
-    if (rain >= 1.5) return { score: 2, reason: `${label}: ${fmt(rain)} mm/h. Moderate rain.` };
+    if (rain >= 16) return { score: 3, reason: `${label}: ${fmt(rain)} mm/h. Very heavy rain.` };
+    if (rain >= 8) return { score: 2, reason: `${label}: ${fmt(rain)} mm/h. Heavy rain; serious site/access consideration.` };
+    if (rain >= 2) return { score: 1, reason: `${label}: ${fmt(rain)} mm/h. Rain likely to matter, but not a stop flag alone.` };
     if (rain > 0) return { score: 1, reason: `${label}: ${fmt(rain)} mm/h. Light rain.` };
     return null;
   }
 
   function showersRisk(value, label) {
     const showers = number(value);
-    if (showers >= 4) return { score: 3, reason: `${label}: ${fmt(showers)} mm. Heavy showers.` };
-    if (showers >= 1) return { score: 2, reason: `${label}: ${fmt(showers)} mm. Showers likely.` };
-    if (showers > 0) return { score: 1, reason: `${label}: ${fmt(showers)} mm. Light showers.` };
+    if (showers >= 10) return { score: 3, reason: `${label}: ${fmt(showers)} mm. Heavy showers.` };
+    if (showers >= 4) return { score: 2, reason: `${label}: ${fmt(showers)} mm. Serious shower risk.` };
+    if (showers > 0) return { score: 1, reason: `${label}: ${fmt(showers)} mm. Showers present.` };
     return null;
   }
 
   function snowRisk(value, label) {
     const snow = number(value);
-    if (snow > 0) return { score: 3, reason: `${label}: ${fmt(snow)}. Snow/ice flag.` };
+    if (snow >= 2) return { score: 3, reason: `${label}: ${fmt(snow)}. Snow/ice may make access unsafe.` };
+    if (snow > 0) return { score: 2, reason: `${label}: ${fmt(snow)}. Snow/ice flag.` };
     return null;
   }
 
   function visibilityRisk(value, label) {
     const visibility = number(value);
     if (!visibility) return null;
-    if (visibility <= 0.5) return { score: 4, reason: `${label}: ${fmt(visibility, 1)} km. Very poor visibility.` };
-    if (visibility <= 1) return { score: 3, reason: `${label}: ${fmt(visibility, 1)} km. Poor visibility.` };
-    if (visibility <= 3) return { score: 2, reason: `${label}: ${fmt(visibility, 1)} km. Reduced visibility.` };
+    if (visibility <= 0.2) return { score: 3, reason: `${label}: ${fmt(visibility, 1)} km. Very poor visibility.` };
+    if (visibility <= 0.8) return { score: 2, reason: `${label}: ${fmt(visibility, 1)} km. Serious visibility consideration.` };
+    if (visibility <= 2) return { score: 1, reason: `${label}: ${fmt(visibility, 1)} km. Reduced visibility.` };
     return null;
   }
 
   function thunderRisk(isThunder, label) {
-    return isThunder ? { score: 4, reason: `${label}: thunderstorm weather code present. Treat as lightning-risk proxy only.` } : null;
+    return isThunder ? { score: 3, reason: `${label}: thunderstorm weather code present. Treat as lightning-risk proxy only.` } : null;
   }
 
   function precipProbabilityRisk(probability, wetHours) {
     const probabilityValue = number(probability);
     const wetHourCount = number(wetHours);
-    if (probabilityValue >= 90 && wetHourCount >= 3) return { score: 2, reason: `next 12h precip chance: ${fmt(probabilityValue, 0)}% across ${wetHourCount} wet hour(s).` };
-    if (probabilityValue >= 60 && wetHourCount >= 1) return { score: 1, reason: `next 12h precip chance: ${fmt(probabilityValue, 0)}%.` };
+    if (probabilityValue >= 90 && wetHourCount >= 3) return { score: 1, reason: `next 12h precip chance: ${fmt(probabilityValue, 0)}% across ${wetHourCount} wet hour(s). Advisory only.` };
+    if (probabilityValue >= 70 && wetHourCount >= 1) return { score: 1, reason: `next 12h precip chance: ${fmt(probabilityValue, 0)}%. Advisory only.` };
     return null;
   }
 
   function riskLabel(score) {
-    return score >= 4 ? "Severe" : score === 3 ? "High" : score === 2 ? "Moderate" : score === 1 ? "Low" : "Clear";
+    return score >= 4 ? "Extreme" : score === 3 ? "High" : score === 2 ? "Moderate" : score === 1 ? "Watch" : "Clear";
   }
 
   function riskLevel(score) {
@@ -508,17 +509,18 @@
       return { state: "unloaded", label: "Not loaded", icon: "", color: "#607080" };
     }
 
-    if (values.thunder || (risk.score >= 4 && (values.thunderCurrent || values.thunderNext))) {
+    if (values.thunder || values.thunderCurrent || values.thunderNext) {
       return { state: "lightning", label: "Lightning / thunder", icon: "", color: "#ff3131" };
     }
 
     const peakGust = Math.max(number(values.gust), number(values.maxNextGust));
     const peakWind = Math.max(number(values.wind), number(values.maxNextWind));
-    if (peakGust >= 36 || peakWind >= 30) {
+    const rainAmount = Math.max(number(values.rain), number(values.maxNextRain), number(values.maxNextPrecip));
+
+    if (risk.score >= 3 && (peakGust >= 55 || peakWind >= 48)) {
       return { state: "storm", label: "Storm / wind", icon: "", color: "#ff8a1f" };
     }
 
-    const rainAmount = Math.max(number(values.rain), number(values.maxNextRain), number(values.maxNextPrecip));
     if (rainAmount >= 0.2 || (number(values.maxNextPrecipProb) >= 70 && number(values.wetHours12) >= 1)) {
       return { state: "rain", label: "Rain", icon: "", color: "#22d9ff" };
     }
