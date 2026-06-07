@@ -1873,3 +1873,118 @@ button, a, input, select {
     padding-bottom: calc(var(--safe-bottom) + 210px);
   }
 }
+
+/* v0.3.2: Met Office compare mode, clearer valid time, and no hidden utility buttons. */
+.metoffice-view-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.metoffice-view-toggle button {
+  min-height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(234, 246, 255, 0.7);
+  font-weight: 900;
+  letter-spacing: 0.03em;
+}
+
+.metoffice-view-toggle button.is-active {
+  border-color: rgba(34, 217, 255, 0.74);
+  background: rgba(34, 217, 255, 0.18);
+  color: var(--text);
+  box-shadow: 0 0 22px rgba(34, 217, 255, 0.22);
+}
+
+.metoffice-view-toggle button:disabled {
+  opacity: 0.38;
+}
+
+.metoffice-time-readout {
+  display: grid;
+  gap: 4px;
+  margin-top: 9px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.metoffice-time-readout strong {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.28;
+}
+
+.metoffice-time-readout span {
+  color: rgba(234, 246, 255, 0.64);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.metoffice-maintenance-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.metoffice-maintenance-actions .secondary-action {
+  min-height: 46px;
+  padding: 0 10px;
+  font-size: 14px;
+}
+
+.metoffice-frame-panel {
+  min-height: 136px;
+}
+
+.metoffice-image.is-raw-source {
+  background: #f4f8f5;
+}
+
+.metoffice-image.is-atlas-source {
+  background: #dcebf0;
+}
+
+@media (max-width: 720px) {
+  .metoffice-control-stack {
+    bottom: calc(var(--safe-bottom) + 178px);
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .metoffice-frame-panel {
+    min-height: 152px;
+    padding: 12px;
+  }
+
+  .metoffice-view-toggle {
+    margin-top: 8px;
+  }
+
+  .metoffice-view-toggle button {
+    min-height: 32px;
+    font-size: 12px;
+  }
+
+  .metoffice-time-readout {
+    padding: 8px 9px;
+  }
+
+  .metoffice-time-readout strong {
+    font-size: 12px;
+  }
+
+  .metoffice-time-readout span {
+    font-size: 11px;
+  }
+
+  .metoffice-image {
+    padding-top: calc(var(--safe-top) + 126px);
+    padding-bottom: calc(var(--safe-bottom) + 272px);
+  }
+}
