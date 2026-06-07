@@ -6,7 +6,7 @@
   <title>RainViewer Radar · Atlas Weather API Lab</title>
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=0.2.3" />
+  <link rel="stylesheet" href="styles.css?v=0.2.6" />
 </head>
 <body>
   <svg class="svg-filters" aria-hidden="true" focusable="false">
@@ -37,9 +37,11 @@
 
     <div id="map" class="map"></div>
 
-    <section class="mode-pill is-on">
+    <section class="mode-pill is-on radar-timeline-pill">
       <span class="mode-pulse" aria-hidden="true">🌧</span>
-      <strong>RADAR BLOB TEST</strong>
+      <span class="timeline-tag">Observed</span>
+      <input id="radarFrameRange" class="top-frame-slider" type="range" min="0" max="0" value="0" aria-label="Observed radar frame" />
+      <strong id="radarTimeLabel">--:--</strong>
     </section>
 
     <section class="floating-panel provider-panel" id="providerPanel">
@@ -47,26 +49,20 @@
         <span class="hazard-icon" aria-hidden="true">🌧</span>
         <div>
           <p class="eyebrow">UK-wide overlay</p>
-          <h2>RainViewer tile layer</h2>
+          <h2>Observed RainViewer layer</h2>
         </div>
         <button class="panel-close-button" type="button" data-panel-close="providerPanel" aria-label="Close RainViewer controls">×</button>
       </div>
-      <p id="statusText">Load the latest radar frames, then scrub the timeline. Heavy rain cores are repainted purple for the hazard test.</p>
+      <p id="statusText">Latest observed radar loads automatically at 95% opacity. Rain stays blue; heavy rain cores are cooled to bright blue-white.</p>
       <div class="button-stack">
-        <button class="primary-action" id="loadRadarButton">Load radar frames</button>
+        <button class="primary-action" id="loadRadarButton">Reload observed radar</button>
         <button class="secondary-action" id="clearRadarButton">Clear overlay</button>
       </div>
-      <label class="range-row" for="radarFrameRange">
-        <span>Frame</span>
-        <input id="radarFrameRange" type="range" min="0" max="0" value="0" />
-        <strong id="radarTimeLabel">—</strong>
-      </label>
-      <label class="range-row" for="radarOpacityRange">
-        <span>Opacity</span>
-        <input id="radarOpacityRange" type="range" min="10" max="95" value="68" />
-        <strong id="radarOpacityLabel">68%</strong>
-      </label>
-      <div class="source-note">Best question: do heavy rain cores work better as purple hazard blobs?</div>
+      <div class="quick-grid two radar-readout-grid">
+        <article><strong id="radarOpacityLabel">95%</strong><span>Opacity</span></article>
+        <article><strong id="radarFrameCount">0/0</strong><span>Slider</span></article>
+      </div>
+      <div class="source-note">Observed only: RainViewer public radar frames are past radar, not forecast frames.</div>
     </section>
 
     <button class="panel-open-button" type="button" data-panel-open="providerPanel" hidden>
@@ -77,6 +73,6 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js?v=0.2.2"></script>
-  <script src="rainviewer.js?v=0.2.4"></script>
+  <script src="rainviewer.js?v=0.2.6"></script>
 </body>
 </html>
