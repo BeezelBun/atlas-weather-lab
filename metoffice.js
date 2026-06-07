@@ -1,4 +1,4 @@
-/* Met Office DataHub Map Images full-screen preview v0.3.1
+/* Met Office DataHub Map Images full-screen preview v0.3.2
    - Restores provider navigation on the full-screen page.
    - Uses locally saved Map Images key/API Order ID.
    - Caches the order file list so the order does not relist hundreds of files every view.
@@ -15,7 +15,8 @@
     order: "atlasWeatherLab.metOffice.mapImages.orderId",
     layer: "atlasWeatherLab.metOffice.mapImages.layer",
     timeStep: "atlasWeatherLab.metOffice.mapImages.timeStep",
-    cachePrefix: "atlasWeatherLab.metOffice.mapImages.fileCache."
+    viewMode: "atlasWeatherLab.metOffice.mapImages.viewMode",
+    cachePrefix: "atlasWeatherLab.metOffice.mapImages.fileCache.v032."
   };
 
   const LAYERS = {
@@ -57,6 +58,10 @@
     frameTitle: document.getElementById("metOfficeFrameTitle"),
     frameLabel: document.getElementById("metOfficeFrameLabel"),
     frameMeta: document.getElementById("metOfficeFrameMeta"),
+    validLabel: document.getElementById("metOfficeValidLabel"),
+    rangeLabel: document.getElementById("metOfficeRangeLabel"),
+    atlasColourButton: document.getElementById("atlasColourButton"),
+    rawColourButton: document.getElementById("rawColourButton"),
     frameSlider: document.getElementById("metOfficeFrameSlider"),
     prevFrame: document.getElementById("prevFrameButton"),
     nextFrame: document.getElementById("nextFrameButton"),
@@ -79,12 +84,15 @@
   let selectedLayer = localStorage.getItem(STORAGE.layer) || "rainfall";
   let selectedFrameKey = localStorage.getItem(STORAGE.timeStep) || "000";
   let selectedFileId = "";
-  let imageObjectUrl = "";
+  let selectedViewMode = localStorage.getItem(STORAGE.viewMode) || "atlas";
+  let rawImageObjectUrl = "";
+  let atlasImageObjectUrl = "";
   let loadingImage = false;
 
   restoreInputs();
   bindEvents();
   setActiveLayer(selectedLayer, { preview: false });
+  updateViewToggle();
   updateSavedNote();
   bootstrap();
 
@@ -107,6 +115,8 @@
     });
 
     els.frameSlider.addEventListener("change", () => previewSelectedFile());
+    els.atlasColourButton.addEventListener("click", () => setViewMode("atlas"));
+    els.rawColourButton.addEventListener("click", () => setViewMode("raw"));
     els.prevFrame.addEventListener("click", () => bumpFrame(-1));
     els.nextFrame.addEventListener("click", () => bumpFrame(1));
     els.refreshButton.addEventListener("click", () => loadOrder({ forceRefresh: true, previewAfter: true }));
@@ -163,6 +173,7 @@
     els.order.value = orderId || els.order.value.trim();
     localStorage.setItem(STORAGE.layer, selectedLayer);
     localStorage.setItem(STORAGE.timeStep, selectedFrameKey);
+    localStorage.setItem(STORAGE.viewMode, selectedViewMode);
   }
 
   function forgetSavedKey() {
@@ -172,6 +183,7 @@
     localStorage.removeItem(STORAGE.order);
     localStorage.removeItem(STORAGE.layer);
     localStorage.removeItem(STORAGE.timeStep);
+    localStorage.removeItem(STORAGE.viewMode);
     if (orderId) localStorage.removeItem(cacheKey(orderId));
 
     fileIds = [];
@@ -179,6 +191,8 @@
     frames = [];
     selectedFileId = "";
     selectedFrameKey = "000";
+    selectedViewMode = "atlas";
+    updateViewToggle();
     els.key.value = "";
     els.order.value = "maps-uk1";
     els.image.hidden = true;
@@ -257,6 +271,7 @@
 
     els.image.classList.remove("is-rainfall", "is-cloud", "is-pressure", "is-temperature");
     els.image.classList.add(`is-${selectedLayer}`);
+    updateViewToggle();
     els.frameTitle.textContent = LAYERS[selectedLayer].label;
     els.legend.innerHTML = `<strong>${escapeHtml(LAYERS[selectedLayer].title)}</strong><span>${escapeHtml(LAYERS[selectedLayer].legend)}</span>`;
 
@@ -277,6 +292,8 @@
       els.frameSlider.value = "0";
       els.frameLabel.textContent = fileIds.length ? "No matching files" : "Load order first";
       els.frameMeta.textContent = fileIds.length ? LAYERS[selectedLayer].empty : "Full model extent will appear after the order list loads.";
+      els.validLabel.textContent = "No valid time selected.";
+      els.rangeLabel.textContent = fileIds.length ? "No matching frames for this layer." : "Load the order to see model frames.";
       if (fileIds.length) setStatus("Layer unavailable", LAYERS[selectedLayer].empty);
       return;
     }
@@ -317,14 +334,21 @@
 
     if (!frame) {
       els.frameLabel.textContent = "No selected file";
+      els.validLabel.textContent = "No valid time selected.";
+      els.rangeLabel.textContent = "No model frames matched this layer.";
       els.frameMeta.textContent = "No model frames matched this layer.";
       return;
     }
 
     const first = frames[0];
     const last = frames[frames.length - 1];
-    els.frameLabel.textContent = `${frame.label} Â· ${index + 1}/${frames.length}`;
-    els.frameMeta.textContent = `${first.label} to ${last.label}${frame.runLabel ? ` Â· run ${frame.runLabel}` : ""} Â· ${selectedFileId}`;
+    const runText = frame.runLabel || "model run";
+    const validText = frame.validLabel || `${frame.label} from ${runText}`;
+
+    els.frameLabel.textContent = `${frame.label} - ${index + 1}/${frames.length}`;
+    els.validLabel.textContent = `Valid: ${validText}`;
+    els.rangeLabel.textContent = `Available: ${first.label} to ${last.label} - ${frames.length} frames`;
+    els.frameMeta.textContent = `${runText} - selected file: ${selectedFileId}`;
   }
 
   function bumpFrame(delta) {
@@ -362,10 +386,10 @@
 
     loadingImage = true;
     disableButtons(true);
-    setStatus("Loading image", `${LAYERS[selectedLayer].label} Â· ${selectedFileId}`);
+    setStatus("Loading image", `${LAYERS[selectedLayer].label} - ${selectedFileId}`);
 
     try {
-      const pngUrl = `${METOFFICE_MAP_IMAGES_BASE}/orders/${encodeURIComponent(orderId)}/latest/${encodeURIComponent(selectedFileId)}/data?includeLand=false`;
+      const pngUrl = `${METOFFICE_MAP_IMAGES_BASE}/orders/${encodeURIComponent(orderId)}/latest/${encodeURIComponent(selectedFileId)}/data?includeLand=true`;
       const response = await fetch(pngUrl, {
         headers: {
           Accept: "image/png",
@@ -375,18 +399,23 @@
       if (!response.ok) throw new Error(`Met Office image request returned HTTP ${response.status}`);
 
       const rawBlob = await response.blob();
-      const previewBlob = selectedLayer === "rainfall" ? await repaintRainfallBlob(rawBlob) : rawBlob;
       clearImageUrl();
-      imageObjectUrl = URL.createObjectURL(previewBlob);
-      els.image.src = imageObjectUrl;
+      rawImageObjectUrl = URL.createObjectURL(rawBlob);
+      if (selectedLayer === "rainfall") {
+        const atlasBlob = await repaintRainfallBlob(rawBlob);
+        atlasImageObjectUrl = URL.createObjectURL(atlasBlob);
+      } else {
+        atlasImageObjectUrl = rawImageObjectUrl;
+      }
+      applySelectedImageUrl();
       els.image.alt = `Met Office ${LAYERS[selectedLayer].label} map image: ${selectedFileId}`;
       els.image.hidden = false;
       els.placeholder.hidden = true;
       setStatus(
         "Preview loaded",
         selectedLayer === "rainfall"
-          ? `${LAYERS[selectedLayer].label} Â· ${selectedFileId}. Atlas blue-only rainfall colour applied in-browser. One image request made for this selected frame only.`
-          : `${LAYERS[selectedLayer].label} Â· ${selectedFileId}. One image request made for this selected frame only.`
+          ? `${LAYERS[selectedLayer].label} - ${selectedFileId}. Atlas blue and raw Met Office views are both ready from this one image request.`
+          : `${LAYERS[selectedLayer].label} - ${selectedFileId}. One image request made for this selected frame only.`
       );
     } catch (error) {
       setStatus("Image error", error.message);
@@ -480,18 +509,69 @@
 
   function extractFrameInfo(fileId) {
     const text = String(fileId || "");
-    const tsMatch = text.match(/(?:^|[_-])ts(\d{1,3})(?:[_-]|$)/i);
-    const plusMatch = text.match(/(?:^|[_-])\+?(\d{1,3})(?:\.[a-z0-9]+)?$/i);
-    const hours = Number(tsMatch?.[1] ?? plusMatch?.[1] ?? 0);
+    const tsMatch = text.match(/(?:^|[_-])ts(\d{1,3})(?=[_-]|$)/i);
+    const plusRunMatch = text.match(/(?:^|[_-])\+(\d{1,2})(?=$|[_-]|\.)/);
+    const datedRunMatch = text.match(/(?:^|[_-])(20\d{6})(\d{2})(?=$|[_-]|\.)/);
+    const fallbackHourMatch = text.match(/(?:^|[_-])(\d{1,3})(?=$|\.)/);
+
+    const hours = Number(tsMatch?.[1] ?? fallbackHourMatch?.[1] ?? 0);
     const safeHours = Number.isFinite(hours) ? hours : 0;
-    const runMatch = text.match(/(?:^|[_-])(20\d{8})(?:\.[a-z0-9]+)?$/);
+    const runHour = datedRunMatch ? Number(datedRunMatch[2]) : plusRunMatch ? Number(plusRunMatch[1]) : null;
+    const runDate = datedRunMatch ? datedRunMatch[1] : "";
+    const validHour = Number.isFinite(runHour) ? (runHour + safeHours) % 24 : null;
+    const dayOffset = Number.isFinite(runHour) ? Math.floor((runHour + safeHours) / 24) : null;
+
     return {
       key: String(safeHours).padStart(3, "0"),
       hours: safeHours,
       label: `T+${safeHours}h`,
-      runLabel: runMatch ? formatModelRun(runMatch[1]) : "",
+      runLabel: buildRunLabel(runDate, runHour),
+      validLabel: buildValidLabel(runDate, runHour, safeHours, validHour, dayOffset),
       fileId: text
     };
+  }
+
+  function buildRunLabel(runDate, runHour) {
+    if (runDate && Number.isFinite(runHour)) {
+      return `${formatRunDate(runDate)} ${pad2(runHour)}Z run`;
+    }
+    if (Number.isFinite(runHour)) return `${pad2(runHour)}Z run`;
+    return "model run";
+  }
+
+  function buildValidLabel(runDate, runHour, hours, validHour, dayOffset) {
+    if (runDate && Number.isFinite(runHour)) {
+      const year = Number(runDate.slice(0, 4));
+      const month = Number(runDate.slice(4, 6)) - 1;
+      const day = Number(runDate.slice(6, 8));
+      const valid = new Date(Date.UTC(year, month, day, runHour + hours, 0, 0));
+      return `${formatValidDate(valid)} UTC (${hours}h after ${pad2(runHour)}Z run)`;
+    }
+    if (Number.isFinite(validHour)) {
+      const dayText = dayOffset ? `, day +${dayOffset}` : ", same day";
+      return `${pad2(validHour)}:00 from ${pad2(runHour)}Z run${dayText}`;
+    }
+    return `T+${hours}h from selected run`;
+  }
+
+  function formatRunDate(value) {
+    return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+  }
+
+  function formatValidDate(date) {
+    return date.toLocaleString("en-GB", {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "UTC"
+    }).replace(",", "");
+  }
+
+  function pad2(value) {
+    return String(value).padStart(2, "0");
   }
 
   function formatModelRun(value) {
@@ -561,11 +641,37 @@
     els.prevFrame.disabled = disabled || frames.length <= 1;
     els.nextFrame.disabled = disabled || frames.length <= 1;
     els.frameSlider.disabled = disabled || frames.length <= 1;
+    updateViewToggle();
   }
 
   function clearImageUrl() {
-    if (imageObjectUrl) URL.revokeObjectURL(imageObjectUrl);
-    imageObjectUrl = "";
+    if (rawImageObjectUrl) URL.revokeObjectURL(rawImageObjectUrl);
+    if (atlasImageObjectUrl && atlasImageObjectUrl !== rawImageObjectUrl) URL.revokeObjectURL(atlasImageObjectUrl);
+    rawImageObjectUrl = "";
+    atlasImageObjectUrl = "";
+  }
+
+  function setViewMode(mode) {
+    selectedViewMode = mode === "raw" ? "raw" : "atlas";
+    localStorage.setItem(STORAGE.viewMode, selectedViewMode);
+    updateViewToggle();
+    applySelectedImageUrl();
+  }
+
+  function updateViewToggle() {
+    const rainfallMode = selectedLayer === "rainfall";
+    els.atlasColourButton.classList.toggle("is-active", selectedViewMode !== "raw");
+    els.rawColourButton.classList.toggle("is-active", selectedViewMode === "raw");
+    els.atlasColourButton.disabled = !rainfallMode || loadingImage;
+    els.rawColourButton.disabled = !rainfallMode || loadingImage;
+  }
+
+  function applySelectedImageUrl() {
+    const useRaw = selectedLayer !== "rainfall" || selectedViewMode === "raw";
+    const url = useRaw ? rawImageObjectUrl : atlasImageObjectUrl;
+    if (url) els.image.src = url;
+    els.image.classList.toggle("is-raw-source", useRaw);
+    els.image.classList.toggle("is-atlas-source", !useRaw);
   }
 
   function unique(values) {
