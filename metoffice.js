@@ -1,10 +1,10 @@
-/* Met Office DataHub Map Images full-screen preview v0.3.2
+/* Met Office DataHub Map Images full-screen preview v0.3.3
    - Restores provider navigation on the full-screen page.
    - Uses locally saved Map Images key/API Order ID.
    - Caches the order file list so the order does not relist hundreds of files every view.
    - Shows one selected PNG at a time with layer buttons and the full available model time extent.
    - Parses Met Office filenames using ts0/ts1/ts168 style time steps.
-   - Repaints rainfall images into an Atlas blue-only overlay palette.
+   - Repaints rainfall images by Met Office mm/hour palette bands into an Atlas blue-only overlay palette.
    - Does not commit keys or order data to GitHub.
 */
 (() => {
@@ -16,7 +16,7 @@
     layer: "atlasWeatherLab.metOffice.mapImages.layer",
     timeStep: "atlasWeatherLab.metOffice.mapImages.timeStep",
     viewMode: "atlasWeatherLab.metOffice.mapImages.viewMode",
-    cachePrefix: "atlasWeatherLab.metOffice.mapImages.fileCache.v032."
+    cachePrefix: "atlasWeatherLab.metOffice.mapImages.fileCache.v033."
   };
 
   const LAYERS = {
@@ -25,7 +25,7 @@
       title: "Rainfall / precipitation rate",
       matcher: /(precip|rainfall|rain)/i,
       empty: "No rainfall image matched this order.",
-      legend: "Met Office precipitation-rate model PNG, recoloured in-browser to Atlas blue rainfall colours."
+      legend: "Met Office precipitation-rate model PNG, recoloured by rainfall-rate colour bands into Atlas blue mm/hour colours."
     },
     cloud: {
       label: "Cloud",
@@ -49,6 +49,21 @@
       legend: "Temperature-at-surface map image from the selected order."
     }
   };
+
+  const RAIN_BANDS = [
+    { id: "lt05", label: "<0.5", detail: "very light", mmh: "<0.5 mm/h", atlas: [185, 248, 255, 0.18], rawSamples: [[2, 28, 225], [0, 0, 190], [18, 42, 210]] },
+    { id: "05-1", label: "0.5-1", detail: "light", mmh: "0.5-1 mm/h", atlas: [124, 235, 255, 0.30], rawSamples: [[45, 95, 245], [42, 116, 255], [0, 105, 230]] },
+    { id: "1-2", label: "1-2", detail: "showery", mmh: "1-2 mm/h", atlas: [54, 205, 255, 0.48], rawSamples: [[70, 190, 240], [67, 210, 255], [0, 188, 230]] },
+    { id: "2-4", label: "2-4", detail: "moderate", mmh: "2-4 mm/h", atlas: [0, 148, 255, 0.62], rawSamples: [[40, 170, 65], [70, 190, 60], [0, 165, 90]] },
+    { id: "4-8", label: "4-8", detail: "heavy", mmh: "4-8 mm/h", atlas: [0, 96, 240, 0.76], rawSamples: [[245, 225, 45], [255, 238, 65], [230, 214, 30]] },
+    { id: "8-16", label: "8-16", detail: "very heavy", mmh: "8-16 mm/h", atlas: [0, 51, 210, 0.88], rawSamples: [[255, 172, 48], [255, 146, 35], [242, 126, 22]] },
+    { id: "16-32", label: "16-32", detail: "intense", mmh: "16-32 mm/h", atlas: [0, 28, 160, 0.94], rawSamples: [[245, 50, 45], [235, 38, 35], [255, 71, 52]] },
+    { id: "gt32", label: ">32", detail: "extreme", mmh: ">32 mm/h", atlas: [230, 252, 255, 0.98], rawSamples: [[150, 0, 0], [190, 0, 0], [120, 0, 0]] }
+  ];
+
+  const RAW_RAIN_SAMPLE_POINTS = RAIN_BANDS.flatMap((band, bandIndex) =>
+    band.rawSamples.map((rgb) => ({ bandIndex, rgb }))
+  );
 
   const els = {
     image: document.getElementById("metOfficeImage"),
@@ -273,10 +288,28 @@
     els.image.classList.add(`is-${selectedLayer}`);
     updateViewToggle();
     els.frameTitle.textContent = LAYERS[selectedLayer].label;
-    els.legend.innerHTML = `<strong>${escapeHtml(LAYERS[selectedLayer].title)}</strong><span>${escapeHtml(LAYERS[selectedLayer].legend)}</span>`;
+    renderLegend();
 
     rebuildLayerFiles();
     if (preview) previewSelectedFile();
+  }
+
+  function renderLegend() {
+    if (selectedLayer !== "rainfall") {
+      els.legend.innerHTML = `<strong>${escapeHtml(LAYERS[selectedLayer].title)}</strong><span>${escapeHtml(LAYERS[selectedLayer].legend)}</span>`;
+      return;
+    }
+
+    const rows = RAIN_BANDS.map((band) => {
+      const [r, g, b, alpha] = band.atlas;
+      return `<span class="metoffice-rain-band"><i style="background: rgba(${r}, ${g}, ${b}, ${alpha});"></i><b>${escapeHtml(band.label)}</b><em>${escapeHtml(band.detail)}</em></span>`;
+    }).join("");
+
+    els.legend.innerHTML = `
+      <strong>Rainfall bands</strong>
+      <span>Atlas colours are mapped from the rendered Met Office rainfall-rate palette.</span>
+      <div class="metoffice-rain-bands">${rows}</div>
+    `;
   }
 
   function rebuildLayerFiles() {
@@ -414,7 +447,7 @@
       setStatus(
         "Preview loaded",
         selectedLayer === "rainfall"
-          ? `${LAYERS[selectedLayer].label} - ${selectedFileId}. Atlas blue and raw Met Office views are both ready from this one image request.`
+          ? `${LAYERS[selectedLayer].label} - ${selectedFileId}. Atlas mm/h bands and raw Met Office views are both ready from this one image request.`
           : `${LAYERS[selectedLayer].label} - ${selectedFileId}. One image request made for this selected frame only.`
       );
     } catch (error) {
@@ -443,26 +476,56 @@
       const b = data[i + 2];
       const a = data[i + 3];
 
-      if (a < 8 || isBackground(r, g, b) || isLandMaskGreen(r, g, b)) {
+      const bandIndex = classifyMetOfficeRainBand(r, g, b, a);
+      if (bandIndex < 0) {
         data[i + 3] = 0;
         continue;
       }
 
-      const intensity = estimateRainIntensity(r, g, b);
-      if (intensity < 0.06) {
-        data[i + 3] = 0;
-        continue;
-      }
-
-      const colour = atlasRainColour(intensity);
+      const colour = RAIN_BANDS[bandIndex].atlas;
       data[i] = colour[0];
       data[i + 1] = colour[1];
       data[i + 2] = colour[2];
-      data[i + 3] = Math.round(colour[3] * a);
+      data[i + 3] = Math.round(colour[3] * 255);
     }
 
     ctx.putImageData(imageData, 0, 0);
     return await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  }
+
+  function classifyMetOfficeRainBand(r, g, b, a) {
+    if (a < 8 || isBackground(r, g, b) || isLandMaskGreen(r, g, b) || isGreyMapInk(r, g, b)) return -1;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const saturation = max === 0 ? 0 : (max - min) / max;
+    if (saturation < 0.12 && max > 110) return -1;
+
+    const nearest = nearestRainBand(r, g, b);
+    if (!nearest || nearest.distance > 12200) return -1;
+    return nearest.bandIndex;
+  }
+
+  function nearestRainBand(r, g, b) {
+    let best = null;
+    for (const sample of RAW_RAIN_SAMPLE_POINTS) {
+      const [sr, sg, sb] = sample.rgb;
+      const distance = weightedColourDistance(r, g, b, sr, sg, sb);
+      if (!best || distance < best.distance) {
+        best = { bandIndex: sample.bandIndex, distance };
+      }
+    }
+    return best;
+  }
+
+  function weightedColourDistance(r, g, b, sr, sg, sb) {
+    const dr = r - sr;
+    const dg = g - sg;
+    const db = b - sb;
+    const hueA = rgbToHue(r, g, b);
+    const hueB = rgbToHue(sr, sg, sb);
+    const hueDiff = Math.min(Math.abs(hueA - hueB), 360 - Math.abs(hueA - hueB));
+    return (dr * dr * 0.9) + (dg * dg * 1.1) + (db * db * 1.0) + (hueDiff * hueDiff * 2.1);
   }
 
   function isBackground(r, g, b) {
@@ -472,27 +535,32 @@
   }
 
   function isLandMaskGreen(r, g, b) {
-    return g > 155 && r < 125 && b < 145 && g - r > 55 && g - b > 45;
-  }
-
-  function estimateRainIntensity(r, g, b) {
+    const hue = rgbToHue(r, g, b);
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
-    const saturation = (max - min) / 255;
-    const darkness = 1 - ((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255);
-    const blueSignal = Math.max(0, b - r) / 255;
-    const cyanSignal = Math.max(0, Math.min(g, b) - r) / 255;
-    const warmSignal = Math.max(0, r - b) / 255;
-    return clamp((darkness * 0.58) + (saturation * 0.22) + (blueSignal * 0.18) + (cyanSignal * 0.12) + (warmSignal * 0.08), 0, 1);
+    const saturation = max === 0 ? 0 : (max - min) / max;
+    return hue >= 95 && hue <= 145 && saturation > 0.38 && g > 135 && r < 130 && b < 150;
   }
 
-  function atlasRainColour(intensity) {
-    if (intensity < 0.16) return [181, 246, 255, 0.26];
-    if (intensity < 0.31) return [111, 230, 255, 0.42];
-    if (intensity < 0.49) return [49, 190, 255, 0.58];
-    if (intensity < 0.68) return [0, 132, 255, 0.72];
-    if (intensity < 0.84) return [0, 78, 224, 0.84];
-    return [226, 250, 255, 0.94];
+  function isGreyMapInk(r, g, b) {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    return max - min < 22 && max < 185;
+  }
+
+  function rgbToHue(r, g, b) {
+    const nr = r / 255;
+    const ng = g / 255;
+    const nb = b / 255;
+    const max = Math.max(nr, ng, nb);
+    const min = Math.min(nr, ng, nb);
+    const delta = max - min;
+    if (!delta) return 0;
+    let hue;
+    if (max === nr) hue = ((ng - nb) / delta) % 6;
+    else if (max === ng) hue = ((nb - nr) / delta) + 2;
+    else hue = ((nr - ng) / delta) + 4;
+    return (hue * 60 + 360) % 360;
   }
 
   function findFiles(json) {
