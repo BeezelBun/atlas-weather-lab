@@ -1988,3 +1988,44 @@ button, a, input, select {
     padding-bottom: calc(var(--safe-bottom) + 272px);
   }
 }
+
+/* v0.3.3: Met Office rainfall band legend. */
+.metoffice-rain-bands {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.metoffice-rain-band {
+  display: grid;
+  grid-template-columns: 18px minmax(42px, auto) 1fr;
+  align-items: center;
+  gap: 7px;
+  line-height: 1.1;
+}
+
+.metoffice-rain-band i {
+  width: 18px;
+  height: 12px;
+  border-radius: 999px;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.metoffice-rain-band b {
+  color: var(--text);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.metoffice-rain-band em {
+  color: rgba(234, 246, 255, 0.58);
+  font-size: 10px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .metoffice-legend {
+    display: none;
+  }
+}
