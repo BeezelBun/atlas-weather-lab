@@ -1,10 +1,10 @@
-/* Met Office DataHub Map Images full-screen preview v0.3.3
+/* Met Office DataHub Map Images full-screen preview v0.3.5
    - Restores provider navigation on the full-screen page.
    - Uses locally saved Map Images key/API Order ID.
    - Caches the order file list so the order does not relist hundreds of files every view.
    - Shows one selected PNG at a time with layer buttons and the full available model time extent.
    - Parses Met Office filenames using ts0/ts1/ts168 style time steps.
-   - Repaints rainfall images by Met Office mm/hour palette bands into an Atlas blue-only overlay palette.
+   - Repaints rainfall images by Met Office mm/hour palette bands into an exact Met Office mm/hour legend colours.
    - Does not commit keys or order data to GitHub.
 */
 (() => {
@@ -16,7 +16,7 @@
     layer: "atlasWeatherLab.metOffice.mapImages.layer",
     timeStep: "atlasWeatherLab.metOffice.mapImages.timeStep",
     viewMode: "atlasWeatherLab.metOffice.mapImages.viewMode",
-    cachePrefix: "atlasWeatherLab.metOffice.mapImages.fileCache.v033."
+    cachePrefix: "atlasWeatherLab.metOffice.mapImages.fileCache.v035."
   };
 
   const LAYERS = {
@@ -25,7 +25,7 @@
       title: "Rainfall / precipitation rate",
       matcher: /(precip|rainfall|rain)/i,
       empty: "No rainfall image matched this order.",
-      legend: "Met Office precipitation-rate model PNG, recoloured by rainfall-rate colour bands into Atlas blue mm/hour colours."
+      legend: "Met Office precipitation-rate model PNG, cleaned into exact mm/hour legend colours with transparent background."
     },
     cloud: {
       label: "Cloud",
@@ -51,14 +51,14 @@
   };
 
   const RAIN_BANDS = [
-    { id: "lt05", label: "<0.5", detail: "very light", mmh: "<0.5 mm/h", atlas: [185, 248, 255, 0.18], rawSamples: [[2, 28, 225], [0, 0, 190], [18, 42, 210]] },
-    { id: "05-1", label: "0.5-1", detail: "light", mmh: "0.5-1 mm/h", atlas: [124, 235, 255, 0.30], rawSamples: [[45, 95, 245], [42, 116, 255], [0, 105, 230]] },
-    { id: "1-2", label: "1-2", detail: "showery", mmh: "1-2 mm/h", atlas: [54, 205, 255, 0.48], rawSamples: [[70, 190, 240], [67, 210, 255], [0, 188, 230]] },
-    { id: "2-4", label: "2-4", detail: "moderate", mmh: "2-4 mm/h", atlas: [0, 148, 255, 0.62], rawSamples: [[40, 170, 65], [70, 190, 60], [0, 165, 90]] },
-    { id: "4-8", label: "4-8", detail: "heavy", mmh: "4-8 mm/h", atlas: [0, 96, 240, 0.76], rawSamples: [[245, 225, 45], [255, 238, 65], [230, 214, 30]] },
-    { id: "8-16", label: "8-16", detail: "very heavy", mmh: "8-16 mm/h", atlas: [0, 51, 210, 0.88], rawSamples: [[255, 172, 48], [255, 146, 35], [242, 126, 22]] },
-    { id: "16-32", label: "16-32", detail: "intense", mmh: "16-32 mm/h", atlas: [0, 28, 160, 0.94], rawSamples: [[245, 50, 45], [235, 38, 35], [255, 71, 52]] },
-    { id: "gt32", label: ">32", detail: "extreme", mmh: ">32 mm/h", atlas: [230, 252, 255, 0.98], rawSamples: [[150, 0, 0], [190, 0, 0], [120, 0, 0]] }
+    { id: "lt05", label: "<0.5", detail: "very light", mmh: "<0.5 mm/h", atlas: [1, 0, 251, 0.88], rawSamples: [[1, 0, 251], [2, 28, 225], [0, 0, 190], [18, 42, 210]] },
+    { id: "05-1", label: "0.5-1", detail: "light", mmh: "0.5-1 mm/h", atlas: [58, 99, 247, 0.90], rawSamples: [[58, 99, 247], [45, 95, 245], [42, 116, 255], [0, 105, 230]] },
+    { id: "1-2", label: "1-2", detail: "showery", mmh: "1-2 mm/h", atlas: [15, 188, 255, 0.92], rawSamples: [[15, 188, 255], [70, 190, 240], [67, 210, 255], [0, 188, 230]] },
+    { id: "2-4", label: "2-4", detail: "moderate", mmh: "2-4 mm/h", atlas: [15, 162, 0, 0.93], rawSamples: [[15, 162, 0], [40, 170, 65], [70, 190, 60], [0, 165, 90]] },
+    { id: "4-8", label: "4-8", detail: "heavy", mmh: "4-8 mm/h", atlas: [252, 202, 21, 0.95], rawSamples: [[252, 202, 21], [245, 225, 45], [255, 238, 65], [230, 214, 30]] },
+    { id: "8-16", label: "8-16", detail: "very heavy", mmh: "8-16 mm/h", atlas: [253, 150, 25, 0.96], rawSamples: [[253, 150, 25], [255, 172, 48], [255, 146, 35], [242, 126, 22]] },
+    { id: "16-32", label: "16-32", detail: "intense", mmh: "16-32 mm/h", atlas: [252, 6, 0, 0.98], rawSamples: [[252, 6, 0], [245, 50, 45], [235, 38, 35], [255, 71, 52]] },
+    { id: "gt32", label: ">32", detail: "extreme", mmh: ">32 mm/h", atlas: [179, 5, 0, 0.98], rawSamples: [[179, 5, 0], [150, 0, 0], [190, 0, 0], [120, 0, 0]] }
   ];
 
   const RAW_RAIN_SAMPLE_POINTS = RAIN_BANDS.flatMap((band, bandIndex) =>
@@ -447,7 +447,7 @@
       setStatus(
         "Preview loaded",
         selectedLayer === "rainfall"
-          ? `${LAYERS[selectedLayer].label} - ${selectedFileId}. Atlas mm/h bands and raw Met Office views are both ready from this one image request.`
+          ? `${LAYERS[selectedLayer].label} - ${selectedFileId}. Clean mm/h bands and raw Met Office views are both ready from this one image request.`
           : `${LAYERS[selectedLayer].label} - ${selectedFileId}. One image request made for this selected frame only.`
       );
     } catch (error) {
@@ -494,7 +494,7 @@
   }
 
   function classifyMetOfficeRainBand(r, g, b, a) {
-    if (a < 8 || isBackground(r, g, b) || isLandMaskGreen(r, g, b) || isGreyMapInk(r, g, b)) return -1;
+    if (a < 8 || isBackground(r, g, b) || isGreyMapInk(r, g, b)) return -1;
 
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
@@ -502,8 +502,13 @@
     if (saturation < 0.12 && max > 110) return -1;
 
     const nearest = nearestRainBand(r, g, b);
-    if (!nearest || nearest.distance > 12200) return -1;
-    return nearest.bandIndex;
+    if (nearest && nearest.distance <= 12200) return nearest.bandIndex;
+
+    // Only reject green land after attempting rainfall-band classification.
+    // The Met Office 2-4 mm/h band is itself green (#0FA200), so rejecting
+    // green before the palette match removes real moderate rainfall.
+    if (isLandMaskGreen(r, g, b)) return -1;
+    return -1;
   }
 
   function nearestRainBand(r, g, b) {
