@@ -6,7 +6,7 @@
   <title>EA Rainfall Gauges · Atlas Weather API Lab</title>
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=0.2.0" />
+  <link rel="stylesheet" href="styles.css?v=0.2.2" />
 </head>
 <body>
   <main class="lab-shell map-shell" data-page="ea-rainfall">
@@ -33,13 +33,14 @@
       <strong>MEASURED RAIN TEST</strong>
     </section>
 
-    <section class="floating-panel provider-panel wide-panel">
-      <div class="panel-head">
+    <section class="floating-panel provider-panel wide-panel" id="providerPanel">
+      <div class="panel-head panel-head-with-action">
         <span class="hazard-icon" aria-hidden="true">☔</span>
         <div>
           <p class="eyebrow">Environment Agency</p>
           <h2>Nearby rainfall gauges</h2>
         </div>
+        <button class="panel-close-button" type="button" data-panel-close="providerPanel" aria-label="Close rainfall gauge controls">×</button>
       </div>
       <p id="statusText">Select a sample site and load nearby rain gauges. This is measured rain, not radar blobs.</p>
       <label class="input-row compact-row">
@@ -57,10 +58,15 @@
       </div>
       <div class="risk-list compact" id="gaugeList"></div>
     </section>
+
+    <button class="panel-open-button gauges-mode" type="button" data-panel-open="providerPanel" hidden>
+      <span aria-hidden="true">☔</span>
+      <strong>Gauge controls</strong>
+    </button>
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=0.2.0"></script>
-  <script src="ea-rainfall.js?v=0.2.0"></script>
+  <script src="app.js?v=0.2.2"></script>
+  <script src="ea-rainfall.js?v=0.2.2"></script>
 </body>
 </html>
