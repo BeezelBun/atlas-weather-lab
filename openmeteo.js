@@ -1,4 +1,4 @@
-/* Open-Meteo visible-site risk page v0.2.5
+/* Open-Meteo visible-site risk page v0.2.6
    Maximum-feature site detail tester. Intentionally over-informative so the final Atlas card can be cut down later.
 */
 
@@ -7,6 +7,7 @@
   const OPEN_METEO_API = "https://api.open-meteo.com/v1/forecast";
   const MAX_SITES_PER_BATCH = 20;
   const HOURS_TO_SHOW = 12;
+  const AUTO_FETCH_DEBOUNCE_MS = 750;
 
   const CURRENT_FIELDS = [
     "temperature_2m",
@@ -60,7 +61,10 @@
     blobLayer: null,
     riskBySite: new Map(),
     markerBySite: new Map(),
-    selectedSiteId: null
+    selectedSiteId: null,
+    autoFetchTimer: null,
+    lastFetchKey: "",
+    fetchSequence: 0
   };
 
   const els = {
@@ -87,26 +91,32 @@
     state.regions = await Lab.loadRegions();
     bindEvents();
     loadVisibleSites(false);
-    renderSites(false);
-    setStatus("Ready. Load visible sites, fetch risk, then tap any site for the maximum feature detail sheet.");
+    renderSites(true);
+    setStatus("Loading visible sites and fetching risk automatically...");
+    await fetchRisk({ auto: true, force: true });
   }
 
   function bindEvents() {
-    els.loadSitesButton.addEventListener("click", () => {
-      loadVisibleSites(true);
-      renderSites(true);
-    });
-
-    els.fetchRiskButton.addEventListener("click", fetchRisk);
+    els.loadSitesButton.addEventListener("click", () => refreshVisibleSites({ force: true, reason: "Manual visible-site refresh" }));
+    els.fetchRiskButton.addEventListener("click", () => fetchRisk({ auto: false, force: true }));
     els.siteSearch.addEventListener("change", findSite);
     els.detailCloseButton?.addEventListener("click", closeDetailPanel);
 
-    map.on("moveend", () => {
-      loadVisibleSites(false);
-      renderSites(true);
-    });
+    map.on("moveend", () => refreshVisibleSites({ force: false, reason: "Viewport changed" }));
+    map.on("zoomend", () => refreshVisibleSites({ force: false, reason: "Zoom changed" }));
+  }
 
-    map.on("zoomend", () => renderSites(true));
+  function refreshVisibleSites({ force = false, reason = "Viewport changed" } = {}) {
+    loadVisibleSites(false);
+    renderSites(true);
+    scheduleAutoFetch(force, reason);
+  }
+
+  function scheduleAutoFetch(force = false, reason = "Viewport changed") {
+    window.clearTimeout(state.autoFetchTimer);
+    state.autoFetchTimer = window.setTimeout(() => {
+      fetchRisk({ auto: true, force, reason });
+    }, AUTO_FETCH_DEBOUNCE_MS);
   }
 
   function loadVisibleSites(showStatus) {
@@ -119,6 +129,10 @@
     if (showStatus) {
       setStatus(`${state.visibleRegions.length} region file(s) and ${state.visibleSites.length} sample site(s) loaded for this viewport.`);
     }
+  }
+
+  function visibleSiteKey() {
+    return state.visibleSites.map(site => site.id).sort().join("|");
   }
 
   function renderSites(includeRisk) {
@@ -159,17 +173,26 @@
     });
   }
 
-  async function fetchRisk() {
+  async function fetchRisk({ auto = false, force = false, reason = "" } = {}) {
     if (!state.visibleSites.length) loadVisibleSites(true);
     if (!state.visibleSites.length) {
       setStatus("No visible sites. Pan or zoom to a sample region first.");
       return;
     }
 
+    const fetchKey = visibleSiteKey();
+    const hasAllRisks = state.visibleSites.every(site => state.riskBySite.has(site.id));
+
+    if (auto && !force && fetchKey === state.lastFetchKey && hasAllRisks) {
+      setStatus(`${state.visibleSites.length} visible site risk value(s) already loaded. Move the map to auto-refresh another region.`);
+      return;
+    }
+
+    const requestId = ++state.fetchSequence;
     els.fetchRiskButton.disabled = true;
-    els.fetchRiskButton.textContent = "Fetchingâ¦";
+    els.fetchRiskButton.textContent = auto ? "Auto-refreshing..." : "Refreshing...";
     els.riskList.innerHTML = "";
-    setStatus(`Fetching maximum-feature weather for ${state.visibleSites.length} visible sample site(s)â¦`);
+    setStatus(`${auto ? "Auto-fetching" : "Fetching"} maximum-feature weather for ${state.visibleSites.length} visible sample site(s)${reason ? ` (${reason})` : ""}...`);
 
     try {
       const batches = Lab.chunk(state.visibleSites, MAX_SITES_PER_BATCH);
@@ -179,14 +202,17 @@
         risks.push(...await fetchOpenMeteoBatch(batch));
       }
 
+      if (requestId !== state.fetchSequence) return;
+
       state.riskBySite.clear();
       risks.forEach(risk => state.riskBySite.set(risk.site.id, risk));
+      state.lastFetchKey = fetchKey;
 
       renderSites(true);
       renderRiskList(risks);
 
-      const topRisk = [...risks].sort((a, b) => b.score - a.score)[0];
-      setStatus(topRisk ? `Highest visible risk: ${topRisk.label} at ${topRisk.site.name}. Tap any site for the full feature sheet.` : "No risk values returned.");
+      const topRisk = [...risks].sort((a, b) => b.score - a.score || b.nextRisk.score - a.nextRisk.score)[0];
+      setStatus(topRisk ? `Auto-loaded ${risks.length} visible site risk value(s). Highest: ${topRisk.label} at ${topRisk.site.name}. Tap any site for the full feature sheet.` : "No risk values returned.");
 
       if (state.selectedSiteId) {
         const selected = risks.find(risk => risk.site.id === state.selectedSiteId);
@@ -195,8 +221,10 @@
     } catch (error) {
       setStatus(`Open-Meteo failed: ${error.message}`);
     } finally {
-      els.fetchRiskButton.disabled = false;
-      els.fetchRiskButton.textContent = "Fetch risk";
+      if (requestId === state.fetchSequence) {
+        els.fetchRiskButton.disabled = false;
+        els.fetchRiskButton.textContent = "Refresh risk";
+      }
     }
   }
 
@@ -289,8 +317,10 @@
     const score = Math.max(currentRisk.score, nextRisk.score);
     const level = riskLevel(score);
     const label = riskLabel(score);
-    const reasons = [...currentRisk.reasons, ...nextRisk.reasons].filter(Boolean);
-    const topReason = reasons[0] || "No obvious severe trigger from the fetched values.";
+    const topCheck = [currentRisk.topCheck, nextRisk.topCheck]
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score)[0];
+    const topReason = topCheck?.reason || "No obvious severe trigger from the fetched values.";
 
     const risk = {
       site,
@@ -300,7 +330,7 @@
       score,
       currentRisk,
       nextRisk,
-      summary: `Current ${currentRisk.label} Â· Next 12h ${nextRisk.label}`,
+      summary: `Current ${currentRisk.label} - Next 12h ${nextRisk.label}`,
       detail: topReason,
       values,
       visual: null,
@@ -395,12 +425,11 @@
   }
 
   function scoreFromChecks(checks) {
-    const score = checks.reduce((highest, check) => Math.max(highest, check.score), 0);
-    const reasons = checks
-      .sort((a, b) => b.score - a.score)
-      .map(check => check.reason);
+    const sorted = [...checks].sort((a, b) => b.score - a.score);
+    const score = sorted.reduce((highest, check) => Math.max(highest, check.score), 0);
+    const reasons = sorted.map(check => check.reason);
 
-    return { score, label: riskLabel(score), level: riskLevel(score), reasons };
+    return { score, label: riskLabel(score), level: riskLevel(score), reasons, topCheck: sorted[0] || null };
   }
 
   function gustRisk(value, label) {
@@ -479,15 +508,18 @@
       return { state: "unloaded", label: "Not loaded", icon: "", color: "#607080" };
     }
 
-    if (values.thunder || risk.score >= 4 && (values.thunderCurrent || values.thunderNext)) {
-      return { state: "lightning", label: "Lightning / thunder", icon: "â¡", color: "#ff3131" };
+    if (values.thunder || (risk.score >= 4 && (values.thunderCurrent || values.thunderNext))) {
+      return { state: "lightning", label: "Lightning / thunder", icon: "", color: "#ff3131" };
     }
 
-    if ((values.maxNextGust || values.gust || 0) >= 36 || (values.maxNextWind || values.wind || 0) >= 30) {
-      return { state: "storm", label: "Storm / wind", icon: "â", color: "#ff8a1f" };
+    const peakGust = Math.max(number(values.gust), number(values.maxNextGust));
+    const peakWind = Math.max(number(values.wind), number(values.maxNextWind));
+    if (peakGust >= 36 || peakWind >= 30) {
+      return { state: "storm", label: "Storm / wind", icon: "", color: "#ff8a1f" };
     }
 
-    if ((values.rain || 0) > 0 || (values.maxNextRain || 0) > 0 || (values.maxNextPrecip || 0) > 0 || (values.maxNextPrecipProb || 0) >= 50) {
+    const rainAmount = Math.max(number(values.rain), number(values.maxNextRain), number(values.maxNextPrecip));
+    if (rainAmount >= 0.2 || (number(values.maxNextPrecipProb) >= 70 && number(values.wetHours12) >= 1)) {
       return { state: "rain", label: "Rain", icon: "", color: "#22d9ff" };
     }
 
@@ -511,8 +543,8 @@
 
     els.riskList.innerHTML = sorted.map(risk => `
       <article class="result-card compact-risk-card wx-${Lab.escapeHtml(risk.visual.state)}">
-        <strong>${Lab.escapeHtml(risk.site.name)} Â· ${Lab.escapeHtml(risk.visual.label)}</strong>
-        <span>${Lab.escapeHtml(risk.summary)} Â· ${Lab.escapeHtml(risk.detail)}</span>
+        <strong>${Lab.escapeHtml(risk.site.name)} - ${Lab.escapeHtml(risk.visual.label)}</strong>
+        <span>${Lab.escapeHtml(risk.summary)} - ${Lab.escapeHtml(risk.detail)}</span>
         <button type="button" data-flyto="${Lab.escapeHtml(risk.site.id)}">Open full feature sheet</button>
       </article>
     `).join("");
@@ -545,14 +577,14 @@
     const sourceRows = sourceFacts(risk).map(item => metric(item.label, item.value, item.hint)).join("");
     const decisionRows = [
       metric("Display state", visual.label, "highest-priority visible state"),
-      metric("Current risk", risk.currentRisk?.label || "â", `score ${risk.currentRisk?.score ?? 0}`),
-      metric("Next 12h", risk.nextRisk?.label || "â", `score ${risk.nextRisk?.score ?? 0}`),
-      metric("Top reason", risk.detail || "â", "why it was flagged")
+      metric("Current risk", risk.currentRisk?.label || "--", `score ${risk.currentRisk?.score ?? 0}`),
+      metric("Next 12h", risk.nextRisk?.label || "--", `score ${risk.nextRisk?.score ?? 0}`),
+      metric("Top reason", risk.detail || "--", "why it was flagged")
     ].join("");
 
     const windRows = [
       metric("Gust now", mph(values.gust), `max ${mph(values.maxNextGust)}`),
-      metric("Wind now", mph(values.wind), `${compass(values.windDirection)} ${fmt(values.windDirection, 0)}Â°`),
+      metric("Wind now", mph(values.wind), `${compass(values.windDirection)} ${fmt(values.windDirection, 0)} deg`),
       metric("Max wind", mph(values.maxNextWind), "next 12h"),
       metric("Gust hours", String(values.highGustHours12 || 0), ">=30 mph next 12h")
     ].join("");
@@ -585,7 +617,7 @@
     ].join("");
 
     const codeRows = [
-      metric("Weather code", String(values.weatherCode ?? "â"), weatherCodeText(values.weatherCode)),
+      metric("Weather code", String(values.weatherCode ?? "--"), weatherCodeText(values.weatherCode)),
       metric("Day/night", values.isDay ? "Day" : "Night", "Open-Meteo is_day"),
       metric("Thunder", values.thunder ? "Inferred" : "Not flagged", "weather code only"),
       metric("Official warning", "Not connected", "Met Office polygon check pending")
@@ -598,13 +630,13 @@
       </article>
     `).join("");
 
-    const hourCards = (risk.next12 || []).map(hour => renderHourCard(hour)).join("") || `<article class="popup-hour-card"><strong>â</strong><small>Fetch risk first</small></article>`;
+    const hourCards = (risk.next12 || []).map(hour => renderHourCard(hour)).join("") || `<article class="popup-hour-card"><strong>--</strong><small>Fetch risk first</small></article>`;
     const rawRows = renderRawDebug(risk);
 
     return `
       <div class="site-detail-hero wx-${Lab.escapeHtml(visual.state)}">
         <div>
-          <p class="eyebrow">${Lab.escapeHtml(site.id)} Â· ${Lab.escapeHtml(site.region)}</p>
+          <p class="eyebrow">${Lab.escapeHtml(site.id)} - ${Lab.escapeHtml(site.region)}</p>
           <h2>${Lab.escapeHtml(site.name)}</h2>
           <div class="site-popup-meta">
             <span>${fmt(site.lat, 4)}, ${fmt(site.lon, 4)}</span>
@@ -691,15 +723,15 @@
         <small>${weatherCodeText(hour.weatherCode)}</small>
         <b>${score.label}</b>
         <span>Temp ${celsius(hour.temperature)} / feels ${celsius(hour.apparentTemperature)}</span>
-        <span>Wind ${mph(hour.wind)} Â· gust ${mph(hour.gust)}</span>
-        <span>Rain ${fmt(hour.rain || hour.precipitation)} mm Â· ${fmt(hour.precipitationProbability, 0)}%</span>
-        <span>Vis ${km(hour.visibilityKm)} Â· cloud ${percent(hour.cloud)}</span>
+        <span>Wind ${mph(hour.wind)} - gust ${mph(hour.gust)}</span>
+        <span>Rain ${fmt(hour.rain || hour.precipitation)} mm - ${fmt(hour.precipitationProbability, 0)}%</span>
+        <span>Vis ${km(hour.visibilityKm)} - cloud ${percent(hour.cloud)}</span>
       </article>
     `;
   }
 
   function renderRiskListSummaryValue(risk) {
-    return `${risk.visual.label} Â· ${risk.summary}`;
+    return `${risk.visual.label} - ${risk.summary}`;
   }
 
   function metric(label, value, hint) {
@@ -764,11 +796,11 @@
     const row = risk.row || {};
     return [
       { label: "Source", value: "Open-Meteo", hint: "no key test API" },
-      { label: "Model time", value: values.sourceModelTime || "â", hint: "current.time" },
-      { label: "Timezone", value: values.timezone || "â", hint: `${values.utcOffsetSeconds || 0}s offset` },
-      { label: "Elevation", value: values.elevation ? `${fmt(values.elevation, 0)} m` : "â", hint: "provider value" },
-      { label: "Generated", value: values.generationTimeMs ? `${fmt(values.generationTimeMs, 1)} ms` : "â", hint: "generationtime_ms" },
-      { label: "Current units", value: Object.keys(row.current_units || {}).length ? "present" : "â", hint: "from response" },
+      { label: "Model time", value: values.sourceModelTime || "--", hint: "current.time" },
+      { label: "Timezone", value: values.timezone || "--", hint: `${values.utcOffsetSeconds || 0}s offset` },
+      { label: "Elevation", value: values.elevation ? `${fmt(values.elevation, 0)} m` : "--", hint: "provider value" },
+      { label: "Generated", value: values.generationTimeMs ? `${fmt(values.generationTimeMs, 1)} ms` : "--", hint: "generationtime_ms" },
+      { label: "Current units", value: Object.keys(row.current_units || {}).length ? "present" : "--", hint: "from response" },
       { label: "Hourly rows", value: String((risk.hourlyRows || []).length), hint: "from now onward" },
       { label: "Requested", value: `${CURRENT_FIELDS.length}+${HOURLY_FIELDS.length}`, hint: "current + hourly fields" }
     ];
@@ -805,7 +837,7 @@
     ];
 
     return entries.map(([key, value]) => `
-      <div><code>${Lab.escapeHtml(key)}</code><span>${Lab.escapeHtml(String(value ?? "â"))}</span></div>
+      <div><code>${Lab.escapeHtml(key)}</code><span>${Lab.escapeHtml(String(value ?? "--"))}</span></div>
     `).join("");
   }
 
@@ -818,7 +850,7 @@
     );
 
     if (!found) {
-      setStatus(`No sample site matched â${query}â.`);
+      setStatus(`No sample site matched "${query}".`);
       return;
     }
 
@@ -872,14 +904,14 @@
   function pressureTrend(rows) {
     const first = rows.find(row => row.pressureMsl)?.pressureMsl;
     const last = [...rows].reverse().find(row => row.pressureMsl)?.pressureMsl;
-    if (!first || !last) return "â";
+    if (!first || !last) return "--";
     const diff = last - first;
     if (Math.abs(diff) < 1) return "steady";
     return diff > 0 ? `rising ${fmt(diff)} hPa` : `falling ${fmt(Math.abs(diff))} hPa`;
   }
 
   function fmt(value, places = 1) {
-    if (!Number.isFinite(Number(value))) return "â";
+    if (!Number.isFinite(Number(value))) return "--";
     return String(Lab.round(value, places));
   }
 
@@ -888,7 +920,7 @@
   }
 
   function celsius(value) {
-    return `${fmt(value)}Â°C`;
+    return `${fmt(value)} C`;
   }
 
   function percent(value) {
@@ -896,20 +928,20 @@
   }
 
   function hpa(value) {
-    return value ? `${fmt(value, 0)} hPa` : "â";
+    return value ? `${fmt(value, 0)} hPa` : "--";
   }
 
   function km(value) {
-    return value ? `${fmt(value, 1)} km` : "â";
+    return value ? `${fmt(value, 1)} km` : "--";
   }
 
   function hourLabel(time) {
-    if (!time) return "â";
+    if (!time) return "--";
     return new Date(time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   }
 
   function compass(degrees) {
-    if (!Number.isFinite(Number(degrees))) return "â";
+    if (!Number.isFinite(Number(degrees))) return "--";
     const points = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
     return points[Math.round(((Number(degrees) % 360) / 45)) % 8];
   }
@@ -920,46 +952,12 @@
 
   function weatherIcon(code) {
     const value = Number(code);
-    if ([95, 96, 99].includes(value)) return "â¡";
-    if ([71, 73, 75, 77, 85, 86].includes(value)) return "â";
-    if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(value)) return "ð§";
-    if ([45, 48].includes(value)) return "ð«";
-    if ([1, 2, 3].includes(value)) return "â";
-    return "â";
+    if ([95, 96, 99].includes(value)) return "T";
+    if ([71, 73, 75, 77, 85, 86].includes(value)) return "SN";
+    if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(value)) return "R";
+    if ([45, 48].includes(value)) return "FG";
+    if ([1, 2, 3].includes(value)) return "CL";
+    return "OK";
   }
 
-  function weatherCodeText(code) {
-    const value = Number(code);
-    const labels = {
-      0: "Clear sky",
-      1: "Mainly clear",
-      2: "Partly cloudy",
-      3: "Overcast",
-      45: "Fog",
-      48: "Depositing rime fog",
-      51: "Light drizzle",
-      53: "Moderate drizzle",
-      55: "Dense drizzle",
-      56: "Light freezing drizzle",
-      57: "Dense freezing drizzle",
-      61: "Slight rain",
-      63: "Moderate rain",
-      65: "Heavy rain",
-      66: "Light freezing rain",
-      67: "Heavy freezing rain",
-      71: "Slight snow",
-      73: "Moderate snow",
-      75: "Heavy snow",
-      77: "Snow grains",
-      80: "Slight showers",
-      81: "Moderate showers",
-      82: "Violent showers",
-      85: "Slight snow showers",
-      86: "Heavy snow showers",
-      95: "Thunderstorm",
-      96: "Thunderstorm with hail",
-      99: "Severe thunderstorm with hail"
-    };
-    return labels[value] || "Unknown / not loaded";
-  }
 })();
