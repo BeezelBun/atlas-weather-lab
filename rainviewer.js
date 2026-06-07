@@ -1,4 +1,4 @@
-/* RainViewer standalone test page v0.2.0 */
+/* RainViewer standalone test page v0.2.1 */
 
 (() => {
   const Lab = window.AtlasWeatherLab;
@@ -10,6 +10,9 @@
   };
 
   const els = {
+    providerPanel: document.getElementById("providerPanel"),
+    panelCloseButton: document.getElementById("panelCloseButton"),
+    panelOpenButton: document.getElementById("panelOpenButton"),
     statusText: document.getElementById("statusText"),
     loadRadarButton: document.getElementById("loadRadarButton"),
     clearRadarButton: document.getElementById("clearRadarButton"),
@@ -25,6 +28,8 @@
   setStatus("Ready. Load RainViewer frames to show the latest radar blob tile layer.");
 
   function bindEvents() {
+    els.panelCloseButton.addEventListener("click", closePanel);
+    els.panelOpenButton.addEventListener("click", openPanel);
     els.loadRadarButton.addEventListener("click", loadFrames);
     els.clearRadarButton.addEventListener("click", clearOverlay);
     els.radarFrameRange.addEventListener("input", () => showFrame(Number(els.radarFrameRange.value)));
@@ -33,6 +38,16 @@
       els.radarOpacityLabel.textContent = `${els.radarOpacityRange.value}%`;
       if (state.radarLayer) state.radarLayer.setOpacity(opacity);
     });
+  }
+
+  function closePanel() {
+    els.providerPanel.hidden = true;
+    els.panelOpenButton.hidden = false;
+  }
+
+  function openPanel() {
+    els.providerPanel.hidden = false;
+    els.panelOpenButton.hidden = true;
   }
 
   async function loadFrames() {
