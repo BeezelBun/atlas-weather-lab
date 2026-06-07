@@ -1,10 +1,10 @@
-/* Met Office DataHub Map Images full-screen preview v0.3.5
+/* Met Office DataHub Map Images full-screen preview v0.3.6
    - Restores provider navigation on the full-screen page.
    - Uses locally saved Map Images key/API Order ID.
    - Caches the order file list so the order does not relist hundreds of files every view.
    - Shows one selected PNG at a time with layer buttons and the full available model time extent.
    - Parses Met Office filenames using ts0/ts1/ts168 style time steps.
-   - Repaints rainfall images by Met Office mm/hour palette bands into an exact Met Office mm/hour legend colours.
+   - Repaints rainfall images by Met Office mm/hour palette bands into an exact Met Office mm/hour legend colours with rainfall images requested without land fill.
    - Does not commit keys or order data to GitHub.
 */
 (() => {
@@ -16,7 +16,7 @@
     layer: "atlasWeatherLab.metOffice.mapImages.layer",
     timeStep: "atlasWeatherLab.metOffice.mapImages.timeStep",
     viewMode: "atlasWeatherLab.metOffice.mapImages.viewMode",
-    cachePrefix: "atlasWeatherLab.metOffice.mapImages.fileCache.v035."
+    cachePrefix: "atlasWeatherLab.metOffice.mapImages.fileCache.v036."
   };
 
   const LAYERS = {
@@ -422,7 +422,8 @@
     setStatus("Loading image", `${LAYERS[selectedLayer].label} - ${selectedFileId}`);
 
     try {
-      const pngUrl = `${METOFFICE_MAP_IMAGES_BASE}/orders/${encodeURIComponent(orderId)}/latest/${encodeURIComponent(selectedFileId)}/data?includeLand=true`;
+      const includeLand = selectedLayer === "rainfall" ? "false" : "true";
+      const pngUrl = `${METOFFICE_MAP_IMAGES_BASE}/orders/${encodeURIComponent(orderId)}/latest/${encodeURIComponent(selectedFileId)}/data?includeLand=${includeLand}`;
       const response = await fetch(pngUrl, {
         headers: {
           Accept: "image/png",
@@ -447,7 +448,7 @@
       setStatus(
         "Preview loaded",
         selectedLayer === "rainfall"
-          ? `${LAYERS[selectedLayer].label} - ${selectedFileId}. Clean mm/h bands and raw Met Office views are both ready from this one image request.`
+          ? `${LAYERS[selectedLayer].label} - ${selectedFileId}. Clean mm/h bands and raw Met Office views are both ready from this one landless rainfall image request.`
           : `${LAYERS[selectedLayer].label} - ${selectedFileId}. One image request made for this selected frame only.`
       );
     } catch (error) {
