@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Atlas Weather API Lab</title>
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="styles.css?v=0.1.0" />
+</head>
+<body>
+  <main class="app-shell" data-weather-mode="off">
+    <header class="top-shell">
+      <button class="shell-button" id="menuButton" aria-label="Menu">☰</button>
+      <label class="search-box" for="siteSearch">
+        <span aria-hidden="true">⌕</span>
+        <input id="siteSearch" autocomplete="off" placeholder="Find walk / site" />
+      </label>
+      <button class="shell-button" id="filterButton" aria-label="Filter">▽</button>
+    </header>
+
+    <section class="side-rail" aria-label="Map sections">
+      <button class="rail-button is-active" title="Map">▱</button>
+      <button class="rail-button" title="RF">⌁</button>
+      <button class="rail-button" title="Network">⌘</button>
+      <button class="rail-button" title="Files">▤</button>
+      <button class="rail-button" title="Tools">⚒</button>
+    </section>
+
+    <div id="map" class="map"></div>
+
+    <section class="mode-pill" id="modePill" hidden>
+      <span class="mode-pulse" aria-hidden="true">⚡</span>
+      <strong>HAZARD WEATHER MODE</strong>
+      <button id="exitWeatherButton" aria-label="Exit weather mode">×</button>
+    </section>
+
+    <section class="status-panel" id="statusPanel">
+      <div class="panel-head">
+        <span class="hazard-icon" aria-hidden="true">⚡</span>
+        <div>
+          <p class="eyebrow">Weather API lab</p>
+          <h1 id="panelTitle">Weather overlay off</h1>
+        </div>
+        <button class="panel-close" id="panelCloseButton" aria-label="Hide panel">×</button>
+      </div>
+
+      <p id="panelText">Test RainViewer radar blobs, Open-Meteo site risk, and Met Office DataHub image access before this goes near Atlas.</p>
+
+      <div class="quick-grid" aria-label="Provider status">
+        <article>
+          <strong id="rainStatus">Off</strong>
+          <span>RainViewer</span>
+        </article>
+        <article>
+          <strong id="siteStatus">0</strong>
+          <span>Loaded sites</span>
+        </article>
+        <article>
+          <strong id="riskStatus">—</strong>
+          <span>Highest risk</span>
+        </article>
+      </div>
+
+      <div class="button-stack">
+        <button class="primary-action" id="activateWeatherButton">Activate weather test</button>
+        <button class="secondary-action" id="loadSitesButton">Load visible region sites</button>
+      </div>
+    </section>
+
+    <section class="lab-drawer" id="labDrawer" aria-label="Weather source tests">
+      <div class="drawer-grip"></div>
+      <nav class="tabs" aria-label="Weather tests">
+        <button class="tab is-active" data-tab="radar">Radar</button>
+        <button class="tab" data-tab="sites">Sites</button>
+        <button class="tab" data-tab="metoffice">Met Office</button>
+        <button class="tab" data-tab="notes">Notes</button>
+      </nav>
+
+      <div class="tab-panel is-active" id="tab-radar">
+        <div class="row-title">
+          <h2>RainViewer radar</h2>
+          <button class="small-action" id="refreshRadarButton">Refresh frames</button>
+        </div>
+        <p class="small-copy">No key. Radar tiles only. Good for UK-wide rain blobs.</p>
+        <label class="range-row" for="radarFrameRange">
+          <span>Frame</span>
+          <input id="radarFrameRange" type="range" min="0" max="0" value="0" />
+          <strong id="radarTimeLabel">—</strong>
+        </label>
+        <label class="range-row" for="radarOpacityRange">
+          <span>Opacity</span>
+          <input id="radarOpacityRange" type="range" min="10" max="95" value="68" />
+          <strong id="radarOpacityLabel">68%</strong>
+        </label>
+      </div>
+
+      <div class="tab-panel" id="tab-sites">
+        <div class="row-title">
+          <h2>Open-Meteo site risk</h2>
+          <button class="small-action" id="fetchSiteWeatherButton">Fetch risk</button>
+        </div>
+        <p class="small-copy">Loads site points from visible region files, then asks Open-Meteo for compact weather values.</p>
+        <div class="risk-list" id="riskList"></div>
+      </div>
+
+      <div class="tab-panel" id="tab-metoffice">
+        <div class="row-title">
+          <h2>Met Office DataHub</h2>
+          <button class="small-action" id="testMetOfficeButton">Test order</button>
+        </div>
+        <p class="small-copy">Needs your own API key and a Map Images order name. The key stays in this browser session only.</p>
+        <label class="input-row">
+          <span>API key</span>
+          <input id="metOfficeKey" type="password" autocomplete="off" placeholder="Paste key for testing" />
+        </label>
+        <label class="input-row">
+          <span>Order name</span>
+          <input id="metOfficeOrder" autocomplete="off" placeholder="e.g. your map image order id" />
+        </label>
+        <div class="metoffice-output" id="metOfficeOutput">No Met Office request made yet.</div>
+      </div>
+
+      <div class="tab-panel" id="tab-notes">
+        <h2>What this repo decides</h2>
+        <ul class="notes-list">
+          <li>Whether RainViewer looks close enough to the Met Office rain page.</li>
+          <li>How many region files can load before mobile feels slow.</li>
+          <li>Whether Open-Meteo site batches are good enough for hazard cards.</li>
+          <li>Whether Met Office DataHub can be used from a public static page, or needs a proxy.</li>
+        </ul>
+      </div>
+    </section>
+
+    <button class="weather-fab" id="weatherFab" aria-label="Toggle weather lab">
+      <span class="fab-core">⚡</span>
+      <span class="fab-cloud">☁</span>
+    </button>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js?v=0.1.0"></script>
+</body>
+</html>
