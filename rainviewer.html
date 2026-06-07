@@ -51,7 +51,7 @@
         </div>
         <button class="panel-close-button" type="button" data-panel-close="providerPanel" aria-label="Close RainViewer controls">×</button>
       </div>
-      <p id="statusText">Load the latest radar frames, then scrub the timeline and compare the blobs with Met Office.</p>
+      <p id="statusText">Load the latest radar frames, then scrub the timeline. Heavy rain cores are repainted purple for the hazard test.</p>
       <div class="button-stack">
         <button class="primary-action" id="loadRadarButton">Load radar frames</button>
         <button class="secondary-action" id="clearRadarButton">Clear overlay</button>
@@ -66,7 +66,7 @@
         <input id="radarOpacityRange" type="range" min="10" max="95" value="68" />
         <strong id="radarOpacityLabel">68%</strong>
       </label>
-      <div class="source-note">Best question: does this look close enough for the Atlas weather blob layer?</div>
+      <div class="source-note">Best question: do heavy rain cores work better as purple hazard blobs?</div>
     </section>
 
     <button class="panel-open-button" type="button" data-panel-open="providerPanel" hidden>
@@ -77,6 +77,6 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js?v=0.2.2"></script>
-  <script src="rainviewer.js?v=0.2.3"></script>
+  <script src="rainviewer.js?v=0.2.4"></script>
 </body>
 </html>
