@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Open-Meteo Site Risk · Atlas Weather API Lab</title>
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="styles.css?v=0.2.0" />
+</head>
+<body>
+  <main class="lab-shell map-shell" data-page="openmeteo">
+    <header class="map-header">
+      <a class="shell-button" href="rainviewer.html" aria-label="Previous test">‹</a>
+      <label class="search-box" for="siteSearch">
+        <span aria-hidden="true">⌕</span>
+        <input id="siteSearch" autocomplete="off" placeholder="Find sample site" />
+      </label>
+      <a class="shell-button" href="metoffice.html" aria-label="Next test">›</a>
+    </header>
+
+    <nav class="mini-nav" aria-label="Weather lab pages">
+      <a href="rainviewer.html">Radar</a>
+      <a class="is-active" href="openmeteo.html">Sites</a>
+      <a href="metoffice.html">Met Office</a>
+      <a href="ea-rainfall.html">Gauges</a>
+    </nav>
+
+    <div id="map" class="map"></div>
+
+    <section class="mode-pill is-on warning">
+      <span class="mode-pulse" aria-hidden="true">⚡</span>
+      <strong>SITE HAZARD TEST</strong>
+    </section>
+
+    <section class="floating-panel provider-panel wide-panel">
+      <div class="panel-head">
+        <span class="hazard-icon" aria-hidden="true">⚠</span>
+        <div>
+          <p class="eyebrow">Visible regions only</p>
+          <h2>Open-Meteo site risk</h2>
+        </div>
+      </div>
+      <p id="statusText">Move the map to load visible region sites. Fetch risk only asks for those visible sample sites.</p>
+      <div class="quick-grid two">
+        <article><strong id="regionCount">0</strong><span>Regions</span></article>
+        <article><strong id="siteCount">0</strong><span>Sites</span></article>
+      </div>
+      <div class="button-stack">
+        <button class="primary-action" id="loadSitesButton">Load visible sites</button>
+        <button class="secondary-action" id="fetchRiskButton">Fetch risk</button>
+      </div>
+      <div class="risk-list compact" id="riskList"></div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js?v=0.2.0"></script>
+  <script src="openmeteo.js?v=0.2.0"></script>
+</body>
+</html>
