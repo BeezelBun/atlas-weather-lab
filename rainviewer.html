@@ -6,9 +6,18 @@
   <title>RainViewer Radar · Atlas Weather API Lab</title>
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=0.2.1" />
+  <link rel="stylesheet" href="styles.css?v=0.2.2" />
 </head>
 <body>
+  <svg class="svg-filters" aria-hidden="true" focusable="false">
+    <filter id="atlasSoftBlueRadar" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="
+        0.08 0.06 0.02 0 0
+        0.42 0.50 0.58 0 0
+        0.88 0.96 1.08 0 0
+        0    0    0    1 0" />
+    </filter>
+  </svg>
   <main class="lab-shell map-shell" data-page="rainviewer">
     <header class="map-header">
       <a class="shell-button" href="index.html" aria-label="Back to lab home">‹</a>
@@ -40,7 +49,7 @@
           <p class="eyebrow">UK-wide overlay</p>
           <h2>RainViewer tile layer</h2>
         </div>
-        <button class="panel-close-button" id="panelCloseButton" type="button" aria-label="Close RainViewer controls">×</button>
+        <button class="panel-close-button" type="button" data-panel-close="providerPanel" aria-label="Close RainViewer controls">×</button>
       </div>
       <p id="statusText">Load the latest radar frames, then scrub the timeline and compare the blobs with Met Office.</p>
       <div class="button-stack">
@@ -60,14 +69,14 @@
       <div class="source-note">Best question: does this look close enough for the Atlas weather blob layer?</div>
     </section>
 
-    <button class="panel-open-button" id="panelOpenButton" type="button" hidden>
+    <button class="panel-open-button" type="button" data-panel-open="providerPanel" hidden>
       <span aria-hidden="true">🌧</span>
       <strong>Radar controls</strong>
     </button>
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=0.2.0"></script>
-  <script src="rainviewer.js?v=0.2.1"></script>
+  <script src="app.js?v=0.2.2"></script>
+  <script src="rainviewer.js?v=0.2.2"></script>
 </body>
 </html>
