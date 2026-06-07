@@ -4,15 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Met Office Map Images · Atlas Weather API Lab</title>
-  <link rel="stylesheet" href="styles.css?v=0.2.9" />
+  <link rel="stylesheet" href="styles.css?v=0.3.1" />
 </head>
 <body class="metoffice-full-page">
   <main class="lab-shell" data-page="metoffice">
-    <section class="metoffice-stage" aria-label="Met Office map preview">
+    <section class="metoffice-stage" aria-label="Met Office map image preview">
       <img id="metOfficeImage" class="metoffice-image" alt="Met Office Map Images preview" hidden />
       <div id="metOfficePlaceholder" class="metoffice-empty-state">
         <strong>Met Office Map Images</strong>
-        <span>Paste the Map Images key and API Order ID once. The page saves them locally on this device, caches the order list, then previews one selected image at a time.</span>
+        <span>Saved local key/order data will auto-load from this browser. The order file list is cached locally so the page only fetches one selected image frame at a time.</span>
       </div>
     </section>
 
@@ -24,6 +24,13 @@
       </div>
       <button class="shell-button" id="openMetOfficeSettings" type="button" aria-label="Open Met Office settings">⚙</button>
     </header>
+
+    <nav class="metoffice-provider-nav" aria-label="Provider pages">
+      <a href="rainviewer.html">Radar</a>
+      <a href="openmeteo.html">Sites</a>
+      <a class="is-active" href="metoffice.html">Met Office</a>
+      <a href="ea-rainfall.html">Gauges</a>
+    </nav>
 
     <section class="metoffice-status-card" id="metOfficeStatus" aria-live="polite">
       <strong>Waiting for setup</strong>
@@ -61,6 +68,7 @@
         <input id="metOfficeFrameSlider" type="range" min="0" max="0" value="0" disabled />
         <button type="button" id="nextFrameButton" aria-label="Next Met Office frame">›</button>
       </div>
+      <div class="metoffice-frame-meta" id="metOfficeFrameMeta">Full model extent will appear after the order list loads.</div>
     </section>
 
     <aside class="metoffice-legend" id="metOfficeLegend">
@@ -98,6 +106,6 @@
   </main>
 
   <script src="app.js?v=0.2.7"></script>
-  <script src="metoffice.js?v=0.3.0"></script>
+  <script src="metoffice.js?v=0.3.1"></script>
 </body>
 </html>
