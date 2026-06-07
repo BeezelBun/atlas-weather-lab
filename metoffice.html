@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Met Office Map Images · Atlas Weather API Lab</title>
-  <link rel="stylesheet" href="styles.css?v=0.3.7" />
+  <link rel="stylesheet" href="styles.css?v=0.3.8" />
 </head>
 <body class="metoffice-full-page">
   <main class="lab-shell" data-page="metoffice">
@@ -74,6 +74,7 @@
         <button class="is-active" id="atlasColourButton" type="button">Clean mm/h</button>
         <button id="rawColourButton" type="button">Raw Met Office</button>
       </div>
+      <button class="metoffice-band-panel-toggle" id="toggleBandFiltersButton" type="button" aria-expanded="false">Show rainfall bands</button>
       <div class="metoffice-band-filter-panel" id="metOfficeBandFilters" aria-label="Rainfall band filters" hidden></div>
       <div class="metoffice-frame-meta" id="metOfficeFrameMeta">Full model extent will appear after the order list loads.</div>
     </section>
@@ -118,6 +119,6 @@
   </main>
 
   <script src="app.js?v=0.2.7"></script>
-  <script src="metoffice.js?v=0.3.7"></script>
+  <script src="metoffice.js?v=0.3.8"></script>
 </body>
 </html>
