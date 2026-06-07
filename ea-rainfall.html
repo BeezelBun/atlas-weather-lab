@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>EA Rainfall Gauges · Atlas Weather API Lab</title>
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="styles.css?v=0.2.0" />
+</head>
+<body>
+  <main class="lab-shell map-shell" data-page="ea-rainfall">
+    <header class="map-header">
+      <a class="shell-button" href="metoffice.html" aria-label="Previous test">‹</a>
+      <div class="title-box">
+        <p class="eyebrow">Provider test</p>
+        <h1>EA rainfall gauges</h1>
+      </div>
+      <a class="shell-button" href="index.html" aria-label="Lab home">⌂</a>
+    </header>
+
+    <nav class="mini-nav" aria-label="Weather lab pages">
+      <a href="rainviewer.html">Radar</a>
+      <a href="openmeteo.html">Sites</a>
+      <a href="metoffice.html">Met Office</a>
+      <a class="is-active" href="ea-rainfall.html">Gauges</a>
+    </nav>
+
+    <div id="map" class="map"></div>
+
+    <section class="mode-pill is-on gauges-mode">
+      <span class="mode-pulse" aria-hidden="true">☔</span>
+      <strong>MEASURED RAIN TEST</strong>
+    </section>
+
+    <section class="floating-panel provider-panel wide-panel">
+      <div class="panel-head">
+        <span class="hazard-icon" aria-hidden="true">☔</span>
+        <div>
+          <p class="eyebrow">Environment Agency</p>
+          <h2>Nearby rainfall gauges</h2>
+        </div>
+      </div>
+      <p id="statusText">Select a sample site and load nearby rain gauges. This is measured rain, not radar blobs.</p>
+      <label class="input-row compact-row">
+        <span>Sample site</span>
+        <select id="siteSelect"></select>
+      </label>
+      <label class="range-row" for="distanceRange">
+        <span>Distance</span>
+        <input id="distanceRange" type="range" min="5" max="50" value="20" step="5" />
+        <strong id="distanceLabel">20 km</strong>
+      </label>
+      <div class="button-stack">
+        <button class="primary-action" id="loadGaugesButton">Load nearby gauges</button>
+        <button class="secondary-action" id="clearGaugesButton">Clear gauges</button>
+      </div>
+      <div class="risk-list compact" id="gaugeList"></div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js?v=0.2.0"></script>
+  <script src="ea-rainfall.js?v=0.2.0"></script>
+</body>
+</html>
