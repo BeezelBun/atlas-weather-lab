@@ -1,192 +1,214 @@
-/* Met Office DataHub Map Images full-screen preview v0.3.8
-   - Restores provider navigation on the full-screen page.
-   - Uses locally saved Map Images key/API Order ID.
-   - Caches the order file list so the order does not relist hundreds of files every view.
-   - Shows one selected PNG at a time with layer buttons and the full available model time extent.
-   - Parses Met Office filenames using ts0/ts1/ts168 style time steps.
-   - Repaints rainfall images by Met Office mm/hour palette bands into an exact Met Office mm/hour legend colours with exact rainfall-band filters, a collapsible band debugger, and a separate #B3D0AE land fill.
-   - Does not commit keys or order data to GitHub.
-*/
+/* Met Office DataHub Map Images clean rewrite v0.3.9
+   - Bottom sheet collapses as one whole control pane.
+   - Raw Met Office stays available as the reference image.
+   - Clean rainfall mode classifies pixels against exact mm/hour legend colours with tolerance.
+   - Key/order stay in localStorage only; no key/order data is committed to GitHub. */
+
 (() => {
+  "use strict";
+
+  const VERSION = "0.3.9";
   const METOFFICE_MAP_IMAGES_BASE = "https://data.hub.api.metoffice.gov.uk/map-images/1.0.0";
+  const UK_TIME_ZONE = "Europe/London";
 
   const STORAGE = {
     key: "atlasWeatherLab.metOffice.mapImages.apiKey",
     order: "atlasWeatherLab.metOffice.mapImages.orderId",
-    layer: "atlasWeatherLab.metOffice.mapImages.layer",
-    timeStep: "atlasWeatherLab.metOffice.mapImages.timeStep",
-    viewMode: "atlasWeatherLab.metOffice.mapImages.viewMode",
-    visibleBands: "atlasWeatherLab.metOffice.mapImages.visibleBands",
-    showLand: "atlasWeatherLab.metOffice.mapImages.showLand",
-    bandsOpen: "atlasWeatherLab.metOffice.mapImages.bandsOpen",
-    cachePrefix: "atlasWeatherLab.metOffice.mapImages.fileCache.v037."
+    layer: "atlasWeatherLab.metOffice.v039.layer",
+    frame: "atlasWeatherLab.metOffice.v039.frame",
+    view: "atlasWeatherLab.metOffice.v039.view",
+    visibleBands: "atlasWeatherLab.metOffice.v039.visibleBands",
+    showLand: "atlasWeatherLab.metOffice.v039.showLand",
+    panelCollapsed: "atlasWeatherLab.metOffice.v039.panelCollapsed",
+    cachePrefix: "atlasWeatherLab.metOffice.mapImages.fileCache.v039."
   };
+
+  const LAND = {
+    label: "Land",
+    hex: "#B3D0AE",
+    rgb: [179, 208, 174]
+  };
+
+  const RAIN_BANDS = [
+    { id: "lt05", label: "<0.5", mmh: "<0.5 mm/h", hex: "#0100FB", rgb: [1, 0, 251] },
+    { id: "05-1", label: "0.5â1", mmh: "0.5â1 mm/h", hex: "#3A63F7", rgb: [58, 99, 247] },
+    { id: "1-2", label: "1â2", mmh: "1â2 mm/h", hex: "#0FBCFF", rgb: [15, 188, 255] },
+    { id: "2-4", label: "2â4", mmh: "2â4 mm/h", hex: "#0FA200", rgb: [15, 162, 0] },
+    { id: "4-8", label: "4â8", mmh: "4â8 mm/h", hex: "#FCCA15", rgb: [252, 202, 21] },
+    { id: "8-16", label: "8â16", mmh: "8â16 mm/h", hex: "#FD9619", rgb: [253, 150, 25] },
+    { id: "16-32", label: "16â32", mmh: "16â32 mm/h", hex: "#FC0600", rgb: [252, 6, 0] },
+    { id: "gt32", label: "32+", mmh: "32+ mm/h", hex: "#B30500", rgb: [179, 5, 0] }
+  ];
 
   const LAYERS = {
     rainfall: {
       label: "Rainfall",
-      title: "Rainfall / precipitation rate",
-      matcher: /(precip|rainfall|rain)/i,
-      empty: "No rainfall image matched this order.",
-      legend: "Met Office precipitation-rate model PNG, cleaned into exact mm/hour legend colours with transparent background."
+      patterns: [/precip/i, /rainfall/i, /rain/i],
+      empty: "No rainfall/precipitation files matched this order."
     },
     cloud: {
       label: "Cloud",
-      title: "Total cloud cover",
-      matcher: /cloud/i,
-      empty: "No cloud image matched this order.",
-      legend: "Total cloud cover map image from the selected order."
+      patterns: [/cloud/i],
+      empty: "No cloud files matched this order."
     },
     pressure: {
       label: "Pressure",
-      title: "Mean sea-level pressure",
-      matcher: /(pressure|mean[_-]?sea|meansea|mslp|msl)/i,
-      empty: "No pressure image matched this order.",
-      legend: "Mean sea-level pressure map image from the selected order."
+      patterns: [/pressure/i, /mean[_-]?sea/i, /meansea/i, /mslp/i, /msl/i],
+      empty: "No pressure/MSLP files matched this order."
     },
     temperature: {
-      label: "Temperature",
-      title: "Surface temperature",
-      matcher: /(temperature|temp)/i,
-      empty: "No temperature image matched this order.",
-      legend: "Temperature-at-surface map image from the selected order."
+      label: "Temp",
+      patterns: [/temperature/i, /temp/i],
+      empty: "No temperature files matched this order."
     }
   };
 
-  const LAND_FILL = { label: "Land", hex: "#B3D0AE", rgb: [179, 208, 174], alpha: 1 };
-
-  const RAIN_BANDS = [
-    { id: "lt05", label: "<0.5", detail: "very light", mmh: "<0.5 mm/h", hex: "#0100FB", rgb: [1, 0, 251], atlas: [1, 0, 251, 0.94] },
-    { id: "05-1", label: "0.5-1", detail: "light", mmh: "0.5-1 mm/h", hex: "#3A63F7", rgb: [58, 99, 247], atlas: [58, 99, 247, 0.94] },
-    { id: "1-2", label: "1-2", detail: "showery", mmh: "1-2 mm/h", hex: "#0FBCFF", rgb: [15, 188, 255], atlas: [15, 188, 255, 0.94] },
-    { id: "2-4", label: "2-4", detail: "moderate", mmh: "2-4 mm/h", hex: "#0FA200", rgb: [15, 162, 0], atlas: [15, 162, 0, 0.96] },
-    { id: "4-8", label: "4-8", detail: "heavy", mmh: "4-8 mm/h", hex: "#FCCA15", rgb: [252, 202, 21], atlas: [252, 202, 21, 0.98] },
-    { id: "8-16", label: "8-16", detail: "very heavy", mmh: "8-16 mm/h", hex: "#FD9619", rgb: [253, 150, 25], atlas: [253, 150, 25, 0.98] },
-    { id: "16-32", label: "16-32", detail: "intense", mmh: "16-32 mm/h", hex: "#FC0600", rgb: [252, 6, 0], atlas: [252, 6, 0, 0.98] },
-    { id: "gt32", label: "32+", detail: "extreme", mmh: "32+ mm/h", hex: "#B30500", rgb: [179, 5, 0], atlas: [179, 5, 0, 0.98] }
-  ];
-  const RAW_RAIN_SAMPLE_POINTS = RAIN_BANDS.map((band, bandIndex) => ({ bandIndex, rgb: band.rgb }));
+  const RAIN_DISTANCE_TOLERANCE = 92;
+  const RAIN_CHANNEL_TOLERANCE = 78;
+  const LAND_DISTANCE_TOLERANCE = 82;
+  const LAND_CHANNEL_TOLERANCE = 70;
 
   const els = {
-    image: document.getElementById("metOfficeImage"),
-    placeholder: document.getElementById("metOfficePlaceholder"),
-    status: document.getElementById("metOfficeStatus"),
-    legend: document.getElementById("metOfficeLegend"),
-    framePanel: document.querySelector(".metoffice-frame-panel"),
-    bandFilters: document.getElementById("metOfficeBandFilters"),
-    bandToggleButton: document.getElementById("toggleBandFiltersButton"),
-    frameTitle: document.getElementById("metOfficeFrameTitle"),
-    frameLabel: document.getElementById("metOfficeFrameLabel"),
-    frameMeta: document.getElementById("metOfficeFrameMeta"),
-    validLabel: document.getElementById("metOfficeValidLabel"),
-    rangeLabel: document.getElementById("metOfficeRangeLabel"),
-    atlasColourButton: document.getElementById("atlasColourButton"),
-    rawColourButton: document.getElementById("rawColourButton"),
-    frameSlider: document.getElementById("metOfficeFrameSlider"),
-    prevFrame: document.getElementById("prevFrameButton"),
-    nextFrame: document.getElementById("nextFrameButton"),
-    layerButtons: Array.from(document.querySelectorAll(".metoffice-layer-button[data-layer]")),
-    refreshButton: document.getElementById("refreshOrderButton"),
-    forgetButton: document.getElementById("forgetLocalButton"),
-    openSettings: document.getElementById("openMetOfficeSettings"),
-    closeSettings: document.getElementById("closeMetOfficeSettings"),
-    closeSetup: document.getElementById("closeSetupButton"),
-    settingsPanel: document.getElementById("metOfficeSettingsPanel"),
-    key: document.getElementById("metOfficeKey"),
-    order: document.getElementById("metOfficeOrder"),
-    saveButton: document.getElementById("saveLocalButton"),
-    storageNote: document.getElementById("metOfficeStorageNote")
+    image: byId("moImage"),
+    placeholder: byId("moPlaceholder"),
+    status: byId("moStatus"),
+    panel: byId("moPanel"),
+    panelToggle: byId("moPanelToggle"),
+    panelToggleText: byId("moPanelToggleText"),
+    compactLayer: byId("moCompactLayer"),
+    compactStep: byId("moCompactStep"),
+    compactUtc: byId("moCompactUtc"),
+    compactUk: byId("moCompactUk"),
+    openSettings: byId("moOpenSettings"),
+    openSettingsInline: byId("moOpenSettingsInline"),
+    closeSettings: byId("moCloseSettings"),
+    closeSetup: byId("moCloseSetup"),
+    settingsPanel: byId("moSettingsPanel"),
+    apiKey: byId("moApiKey"),
+    orderId: byId("moOrderId"),
+    saveSettings: byId("moSaveSettings"),
+    forgetSettings: byId("moForgetSettings"),
+    refreshOrder: byId("moRefreshOrder"),
+    storageNote: byId("moStorageNote"),
+    layerButtons: Array.from(document.querySelectorAll(".mo-layer-button[data-layer]")),
+    frameCount: byId("moFrameCount"),
+    prevFrame: byId("moPrevFrame"),
+    nextFrame: byId("moNextFrame"),
+    frameSlider: byId("moFrameSlider"),
+    runLabel: byId("moRunLabel"),
+    stepLabel: byId("moStepLabel"),
+    validUtcLabel: byId("moValidUtcLabel"),
+    validUkLabel: byId("moValidUkLabel"),
+    cleanView: byId("moCleanView"),
+    rawView: byId("moRawView"),
+    metaLabel: byId("moMetaLabel"),
+    bandDebug: byId("moBandDebug"),
+    bandList: byId("moBandList"),
+    countGrid: byId("moCountGrid"),
+    allBands: byId("moAllBands"),
+    noBands: byId("moNoBands"),
+    showLand: byId("moShowLand")
   };
 
-  let fileIds = [];
-  let layerFiles = [];
-  let frames = [];
-  let selectedLayer = localStorage.getItem(STORAGE.layer) || "rainfall";
-  let selectedFrameKey = localStorage.getItem(STORAGE.timeStep) || "000";
-  let selectedFileId = "";
-  let selectedViewMode = localStorage.getItem(STORAGE.viewMode) || "atlas";
-  let visibleRainBands = readVisibleRainBands();
-  let showLandFill = localStorage.getItem(STORAGE.showLand) !== "false";
-  let bandPanelOpen = localStorage.getItem(STORAGE.bandsOpen) === "true";
-  let lastRawBlob = null;
-  let lastRainBandCounts = new Array(RAIN_BANDS.length).fill(0);
-  let lastLandPixelCount = 0;
-  let rawImageObjectUrl = "";
-  let atlasImageObjectUrl = "";
-  let loadingImage = false;
+  const state = {
+    fileIds: [],
+    layerFiles: [],
+    frames: [],
+    layer: getStoredLayer(),
+    frameKey: localStorage.getItem(STORAGE.frame) || "000",
+    selectedFileId: "",
+    viewMode: localStorage.getItem(STORAGE.view) || "clean",
+    visibleBands: readVisibleBands(),
+    showLand: localStorage.getItem(STORAGE.showLand) !== "false",
+    panelCollapsed: localStorage.getItem(STORAGE.panelCollapsed) === "true",
+    loading: false,
+    rawBlob: null,
+    rawUrl: "",
+    cleanUrl: "",
+    counts: emptyCounts()
+  };
 
-  restoreInputs();
-  bindEvents();
-  setActiveLayer(selectedLayer, { preview: false });
-  updateViewToggle();
-  updateSavedNote();
-  bootstrap();
+  init();
 
-  function restoreInputs() {
-    els.key.value = localStorage.getItem(STORAGE.key) || "";
-    els.order.value = localStorage.getItem(STORAGE.order) || "maps-uk1";
+  function init() {
+    restoreSettingsInputs();
+    renderBandControls();
+    renderCounts();
+    bindEvents();
+    applyPanelState();
+    applyLayerButtons();
+    applyViewButtons();
+    applyFrameUi();
+    applyBandVisibility();
+    bootstrap();
   }
 
   function bindEvents() {
-    els.layerButtons.forEach((button) => {
-      button.addEventListener("click", () => setActiveLayer(button.dataset.layer, { preview: true }));
-    });
-
-    els.bandToggleButton.addEventListener("click", () => {
-      bandPanelOpen = !bandPanelOpen;
-      localStorage.setItem(STORAGE.bandsOpen, bandPanelOpen ? "true" : "false");
-      applyBandPanelState();
-    });
-
-    els.bandFilters.addEventListener("change", (event) => {
-      const target = event.target;
-      if (!target?.matches?.("input[data-band-id], input[data-land-fill]")) return;
-      if (target.matches("input[data-land-fill]")) {
-        showLandFill = target.checked;
-        localStorage.setItem(STORAGE.showLand, showLandFill ? "true" : "false");
-      } else {
-        const bandId = target.dataset.bandId;
-        if (target.checked) visibleRainBands.add(bandId);
-        else visibleRainBands.delete(bandId);
-        localStorage.setItem(STORAGE.visibleBands, JSON.stringify([...visibleRainBands]));
-      }
-      renderLegend();
-      repaintCurrentRainfallImage();
-    });
-
-    els.frameSlider.addEventListener("input", () => {
-      const index = Number(els.frameSlider.value || 0);
-      selectedFrameKey = frames[index]?.key || selectedFrameKey;
-      localStorage.setItem(STORAGE.timeStep, selectedFrameKey);
-      chooseSelectedFile();
-      updateFrameUi();
-    });
-
-    els.frameSlider.addEventListener("change", () => previewSelectedFile());
-    els.atlasColourButton.addEventListener("click", () => setViewMode("atlas"));
-    els.rawColourButton.addEventListener("click", () => setViewMode("raw"));
-    els.prevFrame.addEventListener("click", () => bumpFrame(-1));
-    els.nextFrame.addEventListener("click", () => bumpFrame(1));
-    els.refreshButton.addEventListener("click", () => loadOrder({ forceRefresh: true, previewAfter: true }));
-
-    els.forgetButton.addEventListener("click", () => {
-      forgetSavedKey();
-      showSettings(true);
-    });
-
+    els.panelToggle.addEventListener("click", togglePanel);
     els.openSettings.addEventListener("click", () => showSettings(true));
+    els.openSettingsInline.addEventListener("click", () => showSettings(true));
     els.closeSettings.addEventListener("click", () => showSettings(false));
     els.closeSetup.addEventListener("click", () => showSettings(false));
 
-    els.saveButton.addEventListener("click", () => {
+    els.saveSettings.addEventListener("click", () => {
       saveSettings();
-      updateSavedNote("Saved locally on this device.");
       showSettings(false);
       loadOrder({ forceRefresh: false, previewAfter: true });
     });
 
-    els.key.addEventListener("change", saveSettings);
-    els.order.addEventListener("change", saveSettings);
+    els.forgetSettings.addEventListener("click", forgetSettings);
+    els.refreshOrder.addEventListener("click", () => loadOrder({ forceRefresh: true, previewAfter: true }));
+
+    els.layerButtons.forEach((button) => {
+      button.addEventListener("click", () => setLayer(button.dataset.layer));
+    });
+
+    els.prevFrame.addEventListener("click", () => bumpFrame(-1));
+    els.nextFrame.addEventListener("click", () => bumpFrame(1));
+
+    els.frameSlider.addEventListener("input", () => {
+      const index = Number(els.frameSlider.value || 0);
+      const frame = state.frames[index];
+      if (!frame) return;
+      state.frameKey = frame.key;
+      localStorage.setItem(STORAGE.frame, state.frameKey);
+      chooseSelectedFrame();
+      applyFrameUi();
+    });
+
+    els.frameSlider.addEventListener("change", () => loadSelectedImage());
+
+    els.cleanView.addEventListener("click", () => setViewMode("clean"));
+    els.rawView.addEventListener("click", () => setViewMode("raw"));
+
+    els.bandList.addEventListener("change", (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement) || !input.dataset.bandId) return;
+      if (input.checked) state.visibleBands.add(input.dataset.bandId);
+      else state.visibleBands.delete(input.dataset.bandId);
+      localStorage.setItem(STORAGE.visibleBands, JSON.stringify([...state.visibleBands]));
+      repaintFromRaw("Rainfall bands changed locally. No API request was made.");
+    });
+
+    els.allBands.addEventListener("click", () => {
+      state.visibleBands = new Set(RAIN_BANDS.map((band) => band.id));
+      localStorage.setItem(STORAGE.visibleBands, JSON.stringify([...state.visibleBands]));
+      renderBandControls();
+      repaintFromRaw("All rainfall bands shown locally. No API request was made.");
+    });
+
+    els.noBands.addEventListener("click", () => {
+      state.visibleBands = new Set();
+      localStorage.setItem(STORAGE.visibleBands, JSON.stringify([]));
+      renderBandControls();
+      repaintFromRaw("All rainfall bands hidden locally. No API request was made.");
+    });
+
+    els.showLand.addEventListener("change", () => {
+      state.showLand = els.showLand.checked;
+      localStorage.setItem(STORAGE.showLand, state.showLand ? "true" : "false");
+      repaintFromRaw("Land fill changed locally. No API request was made.");
+    });
   }
 
   async function bootstrap() {
@@ -194,73 +216,21 @@
     const orderId = getOrderId();
 
     if (!apiKey || !orderId) {
-      setStatus("Setup needed", "Paste the Map Images key and API Order ID once. They will be saved only in this browser.");
+      setStatus("Setup needed", "Paste the Map Images key and API Order ID once. They stay in this browser only.");
       showSettings(true);
       return;
     }
 
     const cached = readCachedFiles(orderId);
-    if (cached?.length) {
-      fileIds = cached;
+    if (cached.length) {
+      state.fileIds = cached;
       rebuildLayerFiles();
-      setStatus("Using cached order list", `${fileIds.length} file(s) available locally. No metadata request made.`);
-      await previewSelectedFile();
+      setStatus("Using cached order list", `${cached.length} file(s) available locally. The page will only fetch the selected PNG frame.`);
+      await loadSelectedImage();
       return;
     }
 
     await loadOrder({ forceRefresh: false, previewAfter: true });
-  }
-
-  function saveSettings() {
-    const apiKey = getApiKey();
-    const orderId = normaliseOrderId(els.order.value);
-
-    if (apiKey) localStorage.setItem(STORAGE.key, apiKey);
-    if (orderId) localStorage.setItem(STORAGE.order, orderId);
-
-    els.order.value = orderId || els.order.value.trim();
-    localStorage.setItem(STORAGE.layer, selectedLayer);
-    localStorage.setItem(STORAGE.timeStep, selectedFrameKey);
-    localStorage.setItem(STORAGE.viewMode, selectedViewMode);
-    localStorage.setItem(STORAGE.visibleBands, JSON.stringify([...visibleRainBands]));
-    localStorage.setItem(STORAGE.showLand, showLandFill ? "true" : "false");
-    localStorage.setItem(STORAGE.bandsOpen, bandPanelOpen ? "true" : "false");
-  }
-
-  function forgetSavedKey() {
-    clearImageUrl();
-    const orderId = getOrderId();
-    localStorage.removeItem(STORAGE.key);
-    localStorage.removeItem(STORAGE.order);
-    localStorage.removeItem(STORAGE.layer);
-    localStorage.removeItem(STORAGE.timeStep);
-    localStorage.removeItem(STORAGE.viewMode);
-    localStorage.removeItem(STORAGE.visibleBands);
-    localStorage.removeItem(STORAGE.showLand);
-      localStorage.removeItem(STORAGE.bandsOpen);
-    if (orderId) localStorage.removeItem(cacheKey(orderId));
-
-    fileIds = [];
-    layerFiles = [];
-    frames = [];
-    selectedFileId = "";
-    selectedFrameKey = "000";
-    selectedViewMode = "atlas";
-    visibleRainBands = readVisibleRainBands();
-    showLandFill = true;
-      bandPanelOpen = false;
-    lastRawBlob = null;
-    lastRainBandCounts = new Array(RAIN_BANDS.length).fill(0);
-    lastLandPixelCount = 0;
-    updateViewToggle();
-    els.key.value = "";
-    els.order.value = "maps-uk1";
-    els.image.hidden = true;
-    els.placeholder.hidden = false;
-    els.frameSlider.disabled = true;
-    els.frameMeta.textContent = "Full model extent will appear after the order list loads.";
-    setStatus("Saved key removed", "Paste the Map Images key again when needed. Cached file list was removed for the current order.");
-    updateSavedNote("Saved key/order removed from this browser.");
   }
 
   async function loadOrder({ forceRefresh, previewAfter }) {
@@ -274,22 +244,21 @@
     }
 
     saveSettings();
-    updateSavedNote();
-    disableButtons(true);
+    disableControls(true);
 
     try {
-      const cached = !forceRefresh ? readCachedFiles(orderId) : null;
-      if (cached?.length) {
-        fileIds = cached;
+      const cached = forceRefresh ? [] : readCachedFiles(orderId);
+      if (cached.length) {
+        state.fileIds = cached;
         rebuildLayerFiles();
-        setStatus("Using cached order list", `${fileIds.length} file(s) available locally. No new order-list request was made.`);
-        if (previewAfter) await previewSelectedFile();
+        setStatus("Using cached order list", `${cached.length} file(s) available locally. No order-list request was made.`);
+        if (previewAfter) await loadSelectedImage();
         return;
       }
 
       setStatus("Listing order", "Fetching the latest order file list once, then caching it locally.");
-      const detailUrl = `${METOFFICE_MAP_IMAGES_BASE}/orders/${encodeURIComponent(orderId)}/latest?detail=MINIMAL`;
-      const response = await fetch(detailUrl, {
+      const url = `${METOFFICE_MAP_IMAGES_BASE}/orders/${encodeURIComponent(orderId)}/latest?detail=MINIMAL`;
+      const response = await fetch(url, {
         headers: {
           Accept: "application/json",
           apikey: apiKey
@@ -301,266 +270,127 @@
       }
 
       const json = await response.json();
-      const files = findFiles(json);
-      fileIds = files.map(getFileId).filter(Boolean);
+      const files = findFileIds(json);
 
-      if (!fileIds.length) {
-        throw new Error(`Order request worked, but no files were found. Raw keys: ${Object.keys(json).join(", ")}`);
+      if (!files.length) {
+        throw new Error(`Order request worked, but no PNG/file IDs were found. JSON keys: ${Object.keys(json || {}).join(", ")}`);
       }
 
-      writeCachedFiles(orderId, fileIds);
+      state.fileIds = files;
+      writeCachedFiles(orderId, files);
       rebuildLayerFiles();
-      setStatus("Order OK", `${fileIds.length} file(s) listed and cached. This was one metadata request, not ${fileIds.length} image downloads.`);
-      if (previewAfter) await previewSelectedFile();
+      setStatus("Order OK", `${files.length} file(s) listed and cached. Only the selected PNG frame is fetched.`);
+
+      if (previewAfter) await loadSelectedImage();
     } catch (error) {
-      setStatus("Met Office error", error.message);
+      setStatus("Met Office error", getErrorMessage(error));
       showSettings(true);
     } finally {
-      disableButtons(false);
+      disableControls(false);
     }
   }
 
-  function setActiveLayer(layer, { preview }) {
-    if (!LAYERS[layer]) layer = "rainfall";
-    selectedLayer = layer;
-    localStorage.setItem(STORAGE.layer, selectedLayer);
-
-    els.layerButtons.forEach((button) => {
-      button.classList.toggle("is-active", button.dataset.layer === selectedLayer);
-    });
-
-    els.image.classList.remove("is-rainfall", "is-cloud", "is-pressure", "is-temperature");
-    els.image.classList.add(`is-${selectedLayer}`);
-    updateViewToggle();
-    els.frameTitle.textContent = LAYERS[selectedLayer].label;
-    renderLegend();
-
-    rebuildLayerFiles();
-    if (preview) previewSelectedFile();
-  }
-
-  function renderLegend() {
-    if (selectedLayer !== "rainfall") {
-      els.bandFilters.hidden = true;
-      els.bandToggleButton.hidden = true;
-      els.bandFilters.innerHTML = "";
-      els.legend.innerHTML = `<strong>${escapeHtml(LAYERS[selectedLayer].title)}</strong><span>${escapeHtml(LAYERS[selectedLayer].legend)}</span>`;
-      applyBandPanelState();
-      return;
-    }
-
-    els.bandToggleButton.hidden = false;
-    els.bandFilters.hidden = false;
-    const bandControls = RAIN_BANDS.map((band, index) => {
-      const checked = visibleRainBands.has(band.id) ? "checked" : "";
-      const count = lastRainBandCounts[index] || 0;
-      return `
-        <label class="metoffice-band-toggle" style="--band-colour:${band.hex}">
-          <input type="checkbox" data-band-id="${escapeHtml(band.id)}" ${checked} />
-          <i aria-hidden="true"></i>
-          <span><b>${escapeHtml(band.label)}</b><em>${escapeHtml(band.mmh)}</em></span>
-          <small>${formatPixelCount(count)}</small>
-        </label>`;
-    }).join("");
-
-    els.bandFilters.innerHTML = `
-      <div class="metoffice-filter-title">
-        <strong>Rainfall bands</strong>
-        <span>Tick bands on/off to find what the PNG actually contains.</span>
-      </div>
-      <div class="metoffice-band-grid">${bandControls}</div>
-      <label class="metoffice-band-toggle metoffice-land-toggle" style="--band-colour:${LAND_FILL.hex}">
-        <input type="checkbox" data-land-fill="true" ${showLandFill ? "checked" : ""} />
-        <i aria-hidden="true"></i>
-        <span><b>Land</b><em>${LAND_FILL.hex}</em></span>
-        <small>${formatPixelCount(lastLandPixelCount)}</small>
-      </label>`;
-
-    const activeBands = RAIN_BANDS.filter((band) => visibleRainBands.has(band.id)).map((band) => band.label).join(", ") || "none";
-    els.legend.innerHTML = `
-      <strong>Rainfall band mapper</strong>
-      <span>Clean mm/h maps visible Met Office rainfall colours into exact legend colours using stricter band rules. Active bands: ${escapeHtml(activeBands)}. Land is repainted as ${LAND_FILL.hex}.</span>`;
-    applyBandPanelState();
-  }
-
-  function applyBandPanelState() {
-    const isRainfall = selectedLayer === "rainfall";
-    els.bandToggleButton.hidden = !isRainfall;
-    els.framePanel?.classList.toggle("is-bands-open", isRainfall && bandPanelOpen);
-    els.framePanel?.classList.toggle("is-bands-closed", isRainfall && !bandPanelOpen);
-    if (isRainfall) {
-      els.bandFilters.hidden = !bandPanelOpen;
-      els.bandToggleButton.textContent = bandPanelOpen ? "Hide rainfall bands" : "Show rainfall bands";
-      els.bandToggleButton.setAttribute("aria-expanded", bandPanelOpen ? "true" : "false");
-    } else {
-      els.bandFilters.hidden = true;
-      els.bandToggleButton.setAttribute("aria-expanded", "false");
-    }
-  }
-
-  function rebuildLayerFiles() {
-    const matcher = LAYERS[selectedLayer].matcher;
-    layerFiles = fileIds.filter((fileId) => matcher.test(fileId));
-    frames = buildFrameList(layerFiles);
-
-    if (!frames.length) {
-      selectedFileId = "";
-      els.frameSlider.disabled = true;
-      els.frameSlider.min = "0";
-      els.frameSlider.max = "0";
-      els.frameSlider.value = "0";
-      els.frameLabel.textContent = fileIds.length ? "No matching files" : "Load order first";
-      els.frameMeta.textContent = fileIds.length ? LAYERS[selectedLayer].empty : "Full model extent will appear after the order list loads.";
-      els.validLabel.textContent = "No valid time selected.";
-      els.rangeLabel.textContent = fileIds.length ? "No matching frames for this layer." : "Load the order to see model frames.";
-      if (fileIds.length) setStatus("Layer unavailable", LAYERS[selectedLayer].empty);
-      return;
-    }
-
-    const savedKey = localStorage.getItem(STORAGE.timeStep);
-    if (savedKey && frames.some((frame) => frame.key === savedKey)) {
-      selectedFrameKey = savedKey;
-    } else if (!frames.some((frame) => frame.key === selectedFrameKey)) {
-      selectedFrameKey = frames.some((frame) => frame.key === "000") ? "000" : frames[0].key;
-    }
-
-    localStorage.setItem(STORAGE.timeStep, selectedFrameKey);
-    chooseSelectedFile();
-    updateFrameUi();
-  }
-
-  function buildFrameList(files) {
-    const byKey = new Map();
-    for (const fileId of files) {
-      const info = extractFrameInfo(fileId);
-      if (!byKey.has(info.key)) byKey.set(info.key, info);
-    }
-    return [...byKey.values()].sort((a, b) => a.hours - b.hours);
-  }
-
-  function chooseSelectedFile() {
-    const currentFrame = frames.find((frame) => frame.key === selectedFrameKey) || frames[0];
-    selectedFileId = currentFrame?.fileId || layerFiles[0] || "";
-  }
-
-  function updateFrameUi() {
-    const index = Math.max(0, frames.findIndex((frame) => frame.key === selectedFrameKey));
-    const frame = frames[index] || frames[0];
-    els.frameSlider.disabled = frames.length <= 1;
-    els.frameSlider.min = "0";
-    els.frameSlider.max = String(Math.max(0, frames.length - 1));
-    els.frameSlider.value = String(index);
-
-    if (!frame) {
-      els.frameLabel.textContent = "No selected file";
-      els.validLabel.textContent = "No valid time selected.";
-      els.rangeLabel.textContent = "No model frames matched this layer.";
-      els.frameMeta.textContent = "No model frames matched this layer.";
-      return;
-    }
-
-    const first = frames[0];
-    const last = frames[frames.length - 1];
-    const runText = frame.runLabel || "model run";
-    const validText = frame.validLabel || `${frame.label} from ${runText}`;
-
-    els.frameLabel.textContent = `${frame.label} - ${index + 1}/${frames.length}`;
-    els.validLabel.textContent = `Valid: ${validText}`;
-    els.rangeLabel.textContent = `Available: ${first.label} to ${last.label} - ${frames.length} frames`;
-    els.frameMeta.textContent = `${runText} - selected file: ${selectedFileId}`;
-  }
-
-  function bumpFrame(delta) {
-    if (!frames.length) return;
-    const currentIndex = Math.max(0, frames.findIndex((frame) => frame.key === selectedFrameKey));
-    const nextIndex = clamp(currentIndex + delta, 0, frames.length - 1);
-    selectedFrameKey = frames[nextIndex].key;
-    localStorage.setItem(STORAGE.timeStep, selectedFrameKey);
-    chooseSelectedFile();
-    updateFrameUi();
-    previewSelectedFile();
-  }
-
-  async function previewSelectedFile() {
+  async function loadSelectedImage() {
     const apiKey = getApiKey();
     const orderId = getOrderId();
 
-    if (loadingImage) return;
+    if (state.loading) return;
+
     if (!apiKey || !orderId) {
       setStatus("Setup needed", "Paste a Map Images key and API Order ID first.");
       showSettings(true);
       return;
     }
 
-    if (!fileIds.length) {
+    if (!state.fileIds.length) {
       await loadOrder({ forceRefresh: false, previewAfter: true });
       return;
     }
 
     rebuildLayerFiles();
-    if (!selectedFileId) {
-      setStatus("No image selected", LAYERS[selectedLayer].empty);
+
+    if (!state.selectedFileId) {
+      setStatus("Layer unavailable", LAYERS[state.layer].empty);
       return;
     }
 
-    loadingImage = true;
-    disableButtons(true);
-    setStatus("Loading image", `${LAYERS[selectedLayer].label} - ${selectedFileId}`);
+    state.loading = true;
+    disableControls(true);
+    clearImageUrls();
+    state.rawBlob = null;
+    state.counts = emptyCounts();
+    renderCounts();
 
     try {
-      const includeLand = "true";
-      const pngUrl = `${METOFFICE_MAP_IMAGES_BASE}/orders/${encodeURIComponent(orderId)}/latest/${encodeURIComponent(selectedFileId)}/data?includeLand=${includeLand}`;
-      const response = await fetch(pngUrl, {
+      setStatus("Loading image", `${LAYERS[state.layer].label} Â· ${state.selectedFileId}`);
+      const url = `${METOFFICE_MAP_IMAGES_BASE}/orders/${encodeURIComponent(orderId)}/latest/${encodeURIComponent(state.selectedFileId)}/data?includeLand=true`;
+      const response = await fetch(url, {
         headers: {
           Accept: "image/png",
           apikey: apiKey
         }
       });
-      if (!response.ok) throw new Error(`Met Office image request returned HTTP ${response.status}`);
 
-      const rawBlob = await response.blob();
-      lastRawBlob = selectedLayer === "rainfall" ? rawBlob : null;
-      clearImageUrl();
-      rawImageObjectUrl = URL.createObjectURL(rawBlob);
-      if (selectedLayer === "rainfall") {
-        const atlasBlob = await repaintRainfallBlob(rawBlob);
-        atlasImageObjectUrl = URL.createObjectURL(atlasBlob);
-      } else {
-        atlasImageObjectUrl = rawImageObjectUrl;
+      if (!response.ok) {
+        throw new Error(`Met Office image request returned HTTP ${response.status}.`);
       }
-      applySelectedImageUrl();
-      els.image.alt = `Met Office ${LAYERS[selectedLayer].label} map image: ${selectedFileId}`;
+
+      const blob = await response.blob();
+      state.rawBlob = blob;
+      state.rawUrl = URL.createObjectURL(blob);
+
+      if (state.layer === "rainfall") {
+        const cleanBlob = await repaintRainfallBlob(blob);
+        state.cleanUrl = URL.createObjectURL(cleanBlob);
+      } else {
+        state.cleanUrl = state.rawUrl;
+        state.viewMode = "raw";
+        localStorage.setItem(STORAGE.view, state.viewMode);
+      }
+
+      applyImageSource();
+      applyViewButtons();
+      applyBandVisibility();
+      els.image.alt = `Met Office ${LAYERS[state.layer].label} map image: ${state.selectedFileId}`;
       els.image.hidden = false;
       els.placeholder.hidden = true;
+
       setStatus(
         "Preview loaded",
-        selectedLayer === "rainfall"
-          ? `${LAYERS[selectedLayer].label} - ${selectedFileId}. Clean mm/h band filters and raw Met Office views are both ready from this one rainfall image request.`
-          : `${LAYERS[selectedLayer].label} - ${selectedFileId}. One image request made for this selected frame only.`
+        state.layer === "rainfall"
+          ? "Raw reference and clean mm/h band view are ready from this one PNG request. Checkbox changes repaint locally."
+          : `${LAYERS[state.layer].label} is shown as the raw Met Office PNG.`
       );
     } catch (error) {
-      setStatus("Image error", error.message);
+      setStatus("Image error", getErrorMessage(error));
+      els.image.hidden = true;
+      els.placeholder.hidden = false;
     } finally {
-      loadingImage = false;
-      disableButtons(false);
+      state.loading = false;
+      disableControls(false);
     }
   }
 
-  async function repaintCurrentRainfallImage() {
-    if (selectedLayer !== "rainfall" || !lastRawBlob || loadingImage) return;
-    loadingImage = true;
-    updateViewToggle();
+  async function repaintFromRaw(message) {
+    if (state.layer !== "rainfall" || !state.rawBlob || state.loading) return;
+
+    state.loading = true;
+    disableControls(true);
+
     try {
-      if (atlasImageObjectUrl && atlasImageObjectUrl !== rawImageObjectUrl) URL.revokeObjectURL(atlasImageObjectUrl);
-      const atlasBlob = await repaintRainfallBlob(lastRawBlob);
-      atlasImageObjectUrl = URL.createObjectURL(atlasBlob);
-      applySelectedImageUrl();
-      setStatus("Repainted locally", "No Met Office request was made. The selected rainfall bands were reapplied from the cached PNG in this browser.");
+      if (state.cleanUrl && state.cleanUrl !== state.rawUrl) {
+        URL.revokeObjectURL(state.cleanUrl);
+      }
+
+      const cleanBlob = await repaintRainfallBlob(state.rawBlob);
+      state.cleanUrl = URL.createObjectURL(cleanBlob);
+      applyImageSource();
+      setStatus("Repainted locally", message);
     } catch (error) {
-      setStatus("Repaint error", error.message);
+      setStatus("Repaint error", getErrorMessage(error));
     } finally {
-      loadingImage = false;
-      updateViewToggle();
+      state.loading = false;
+      disableControls(false);
     }
   }
 
@@ -569,373 +399,643 @@
     const canvas = document.createElement("canvas");
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;
+
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     ctx.drawImage(bitmap, 0, 0);
     bitmap.close?.();
 
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
-    const counts = new Array(RAIN_BANDS.length).fill(0);
-    let landCount = 0;
+    const counts = emptyCounts();
 
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const a = data[i + 3];
+    for (let index = 0; index < data.length; index += 4) {
+      const r = data[index];
+      const g = data[index + 1];
+      const b = data[index + 2];
+      const a = data[index + 3];
 
       if (a < 8) {
-        data[i + 3] = 0;
+        counts.transparent += 1;
+        data[index + 3] = 0;
         continue;
       }
 
-      if (isMetOfficeLand(r, g, b)) {
-        landCount += 1;
-        if (showLandFill) {
-          paintPixel(data, i, LAND_FILL.rgb, LAND_FILL.alpha);
-        } else {
-          data[i + 3] = 0;
+      const rainBandIndex = classifyRainBand(r, g, b);
+      if (rainBandIndex >= 0) {
+        const band = RAIN_BANDS[rainBandIndex];
+        counts.bands[rainBandIndex] += 1;
+
+        if (!state.visibleBands.has(band.id)) {
+          counts.hiddenRain += 1;
+          data[index + 3] = 0;
+          continue;
         }
+
+        paintPixel(data, index, band.rgb, 238);
         continue;
       }
 
-      const bandIndex = classifyMetOfficeRainBand(r, g, b, a);
-      if (bandIndex < 0) {
-        data[i + 3] = 0;
+      if (isLandPixel(r, g, b)) {
+        counts.land += 1;
+        if (state.showLand) paintPixel(data, index, LAND.rgb, 255);
+        else data[index + 3] = 0;
         continue;
       }
 
-      counts[bandIndex] += 1;
-      const band = RAIN_BANDS[bandIndex];
-      if (!visibleRainBands.has(band.id)) {
-        data[i + 3] = 0;
+      if (isLikelyMapInkOrBackground(r, g, b)) {
+        counts.mapInk += 1;
+        data[index + 3] = 0;
         continue;
       }
 
-      paintPixel(data, i, band.atlas, band.atlas[3]);
+      counts.unmatched += 1;
+      data[index + 3] = 0;
     }
 
-    lastRainBandCounts = counts;
-    lastLandPixelCount = landCount;
+    state.counts = counts;
     ctx.putImageData(imageData, 0, 0);
-    renderLegend();
-    return await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    renderBandControls();
+    renderCounts();
+
+    return await new Promise((resolve, reject) => {
+      canvas.toBlob((cleanBlob) => {
+        if (cleanBlob) resolve(cleanBlob);
+        else reject(new Error("Canvas did not return a PNG blob."));
+      }, "image/png");
+    });
   }
 
-  function paintPixel(data, index, colour, alpha = 1) {
-    data[index] = colour[0];
-    data[index + 1] = colour[1];
-    data[index + 2] = colour[2];
-    data[index + 3] = Math.round(alpha * 255);
-  }
+  function classifyRainBand(r, g, b) {
+    let bestIndex = -1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    let bestMaxDelta = Number.POSITIVE_INFINITY;
 
-  function classifyMetOfficeRainBand(r, g, b, a) {
-    if (a < 8 || isBackground(r, g, b) || isGreyMapInk(r, g, b)) return -1;
+    for (let index = 0; index < RAIN_BANDS.length; index += 1) {
+      const colour = RAIN_BANDS[index].rgb;
+      const dr = Math.abs(r - colour[0]);
+      const dg = Math.abs(g - colour[1]);
+      const db = Math.abs(b - colour[2]);
+      const maxDelta = Math.max(dr, dg, db);
+      const distance = Math.sqrt((dr * dr) + (dg * dg) + (db * db));
 
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const saturation = max === 0 ? 0 : (max - min) / max;
-
-    // Blue family: keep dark blue as <0.5. The previous nearest-colour logic
-    // dragged too many dark blue pixels into the 0.5-1 / 1-2 bands.
-    if (b >= 118 && r <= 95 && b >= g - 18) {
-      if (g <= 54) return 0;
-      if (g <= 145) return 1;
-      return 2;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestMaxDelta = maxDelta;
+        bestIndex = index;
+      }
     }
 
-    // Cyan family: 1-2 mm/h.
-    if (b >= 145 && g >= 130 && r <= 100) return 2;
-
-    // True rain green: saturated, low red/blue. Pale map/land greens are handled
-    // by isMetOfficeLand() before this classifier is called.
-    if (g >= 105 && r <= 105 && b <= 135 && saturation >= 0.42) return 3;
-
-    // Yellow / orange / red families.
-    if (r >= 190 && g >= 165 && b <= 110) return 4;
-    if (r >= 190 && g >= 80 && g < 170 && b <= 110) return 5;
-    if (r >= 190 && g < 80 && b < 100) return 6;
-    if (r >= 95 && r < 190 && g < 75 && b < 75) return 7;
-
-    const nearest = nearestRainBand(r, g, b);
-    if (nearest && nearest.distance <= 3200) return nearest.bandIndex;
-
+    if (bestIndex < 0) return -1;
+    if (bestDistance <= RAIN_DISTANCE_TOLERANCE && bestMaxDelta <= RAIN_CHANNEL_TOLERANCE) return bestIndex;
     return -1;
   }
 
-  function isMetOfficeLand(r, g, b) {
-    const exactDistance = rgbDistance(r, g, b, LAND_FILL.rgb[0], LAND_FILL.rgb[1], LAND_FILL.rgb[2]);
-    if (exactDistance <= 14000) return true;
+  function isLandPixel(r, g, b) {
+    const dr = Math.abs(r - LAND.rgb[0]);
+    const dg = Math.abs(g - LAND.rgb[1]);
+    const db = Math.abs(b - LAND.rgb[2]);
+    const distance = Math.sqrt((dr * dr) + (dg * dg) + (db * db));
+    const maxDelta = Math.max(dr, dg, db);
 
-    const hue = rgbToHue(r, g, b);
+    if (distance <= LAND_DISTANCE_TOLERANCE && maxDelta <= LAND_CHANNEL_TOLERANCE) return true;
+
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const saturation = max === 0 ? 0 : (max - min) / max;
-
-    // Met Office/OSM land appears as a pale green. This catches land fills and
-    // antialiasing without catching saturated 2-4 mm/h rain green (#0FA200).
-    return hue >= 72 && hue <= 150 && saturation <= 0.44 && g >= 118 && r >= 78 && b >= 62;
+    const paleGreen = g >= 150 && r >= 125 && b >= 115 && g >= b && g >= r - 8;
+    return paleGreen && saturation <= 0.36;
   }
 
-  function nearestRainBand(r, g, b) {
-    let best = null;
-    for (const sample of RAW_RAIN_SAMPLE_POINTS) {
-      const [sr, sg, sb] = sample.rgb;
-      const distance = rgbDistance(r, g, b, sr, sg, sb);
-      if (!best || distance < best.distance) {
-        best = { bandIndex: sample.bandIndex, distance };
-      }
+  function isLikelyMapInkOrBackground(r, g, b) {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const spread = max - min;
+    if (max > 236 && spread < 18) return true;
+    if (max < 42 && spread < 20) return true;
+    if (spread < 18) return true;
+    return false;
+  }
+
+  function paintPixel(data, index, rgb, alpha) {
+    data[index] = rgb[0];
+    data[index + 1] = rgb[1];
+    data[index + 2] = rgb[2];
+    data[index + 3] = alpha;
+  }
+
+  function setLayer(layer) {
+    if (!LAYERS[layer] || layer === state.layer) return;
+
+    state.layer = layer;
+    localStorage.setItem(STORAGE.layer, state.layer);
+    state.viewMode = layer === "rainfall" ? (localStorage.getItem(STORAGE.view) || "clean") : "raw";
+    rebuildLayerFiles();
+    applyLayerButtons();
+    applyViewButtons();
+    applyBandVisibility();
+    loadSelectedImage();
+  }
+
+  function setViewMode(mode) {
+    if (mode === "clean" && state.layer !== "rainfall") return;
+    state.viewMode = mode === "raw" ? "raw" : "clean";
+    localStorage.setItem(STORAGE.view, state.viewMode);
+    applyViewButtons();
+    applyImageSource();
+  }
+
+  function rebuildLayerFiles() {
+    const layerConfig = LAYERS[state.layer];
+    state.layerFiles = state.fileIds.filter((fileId) => matchesLayer(fileId, layerConfig));
+    state.frames = buildFrames(state.layerFiles);
+
+    if (!state.frames.length) {
+      state.selectedFileId = "";
+      applyFrameUi();
+      return;
     }
-    return best;
+
+    const savedFrame = localStorage.getItem(STORAGE.frame);
+    if (savedFrame && state.frames.some((frame) => frame.key === savedFrame)) {
+      state.frameKey = savedFrame;
+    } else if (!state.frames.some((frame) => frame.key === state.frameKey)) {
+      const zeroFrame = state.frames.find((frame) => frame.key === "000");
+      state.frameKey = zeroFrame?.key || state.frames[0].key;
+    }
+
+    chooseSelectedFrame();
+    applyFrameUi();
   }
 
-  function rgbDistance(r, g, b, sr, sg, sb) {
-    const dr = r - sr;
-    const dg = g - sg;
-    const db = b - sb;
-    return (dr * dr) + (dg * dg) + (db * db);
+  function matchesLayer(fileId, layerConfig) {
+    const text = String(fileId || "");
+    return layerConfig.patterns.some((pattern) => pattern.test(text));
   }
 
-  function isBackground(r, g, b) {
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    return max > 238 && min > 226;
+  function buildFrames(files) {
+    const byKey = new Map();
+
+    files.forEach((fileId) => {
+      const frame = extractFrameInfo(fileId);
+      if (!byKey.has(frame.key)) byKey.set(frame.key, frame);
+    });
+
+    return [...byKey.values()].sort((a, b) => a.stepHours - b.stepHours || a.fileId.localeCompare(b.fileId));
   }
 
-  function isGreyMapInk(r, g, b) {
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    return max - min < 22 && max < 185;
+  function chooseSelectedFrame() {
+    const selected = state.frames.find((frame) => frame.key === state.frameKey) || state.frames[0];
+    state.selectedFileId = selected?.fileId || "";
+    if (selected) {
+      state.frameKey = selected.key;
+      localStorage.setItem(STORAGE.frame, state.frameKey);
+    }
   }
 
-  function rgbToHue(r, g, b) {
-    const nr = r / 255;
-    const ng = g / 255;
-    const nb = b / 255;
-    const max = Math.max(nr, ng, nb);
-    const min = Math.min(nr, ng, nb);
-    const delta = max - min;
-    if (!delta) return 0;
-    let hue;
-    if (max === nr) hue = ((ng - nb) / delta) % 6;
-    else if (max === ng) hue = ((nb - nr) / delta) + 2;
-    else hue = ((nr - ng) / delta) + 4;
-    return (hue * 60 + 360) % 360;
-  }
-
-  function findFiles(json) {
-    if (Array.isArray(json?.orderDetails?.files)) return json.orderDetails.files;
-    if (Array.isArray(json?.files)) return json.files;
-    if (Array.isArray(json?.items)) return json.items;
-    return [];
-  }
-
-  function getFileId(file) {
-    if (typeof file === "string") return file;
-    return file?.fileId || file?.filename || file?.name || file?.id || "";
+  function bumpFrame(delta) {
+    if (!state.frames.length) return;
+    const currentIndex = Math.max(0, state.frames.findIndex((frame) => frame.key === state.frameKey));
+    const nextIndex = clamp(currentIndex + delta, 0, state.frames.length - 1);
+    state.frameKey = state.frames[nextIndex].key;
+    localStorage.setItem(STORAGE.frame, state.frameKey);
+    chooseSelectedFrame();
+    applyFrameUi();
+    loadSelectedImage();
   }
 
   function extractFrameInfo(fileId) {
     const text = String(fileId || "");
-    const tsMatch = text.match(/(?:^|[_-])ts(\d{1,3})(?=[_-]|$)/i);
-    const plusRunMatch = text.match(/(?:^|[_-])\+(\d{1,2})(?=$|[_-]|\.)/);
-    const datedRunMatch = text.match(/(?:^|[_-])(20\d{6})(\d{2})(?=$|[_-]|\.)/);
-    const fallbackHourMatch = text.match(/(?:^|[_-])(\d{1,3})(?=$|\.)/);
+    const stepMatch = text.match(/(?:^|[_\-./])ts(\d{1,3})(?=[_\-./]|$)/i)
+      || text.match(/(?:^|[_\-./])t\+?(\d{1,3})(?=[_\-./]|$)/i)
+      || text.match(/(?:^|[_\-./])step[_\-]?(\d{1,3})(?=[_\-./]|$)/i)
+      || text.match(/(?:^|[_\-./])(\d{1,3})(?=\.png$)/i);
 
-    const hours = Number(tsMatch?.[1] ?? fallbackHourMatch?.[1] ?? 0);
-    const safeHours = Number.isFinite(hours) ? hours : 0;
-    const runHour = datedRunMatch ? Number(datedRunMatch[2]) : plusRunMatch ? Number(plusRunMatch[1]) : null;
-    const runDate = datedRunMatch ? datedRunMatch[1] : "";
-    const validHour = Number.isFinite(runHour) ? (runHour + safeHours) % 24 : null;
-    const dayOffset = Number.isFinite(runHour) ? Math.floor((runHour + safeHours) / 24) : null;
+    const stepHours = safeNumber(stepMatch?.[1], 0);
+    const key = String(stepHours).padStart(3, "0");
+
+    const datedRun = text.match(/(20\d{6})[_\-T]?([01]\d|2[0-3])(?:00)?z?/i);
+    const runOnly = text.match(/(?:^|[_\-./])(?:run)?([01]\d|2[0-3])z(?=[_\-./]|$)/i)
+      || text.match(/(?:^|[_\-./])([01]\d|2[0-3])utc(?=[_\-./]|$)/i);
+
+    const runDateText = datedRun?.[1] || "";
+    const runHour = datedRun ? Number(datedRun[2]) : runOnly ? Number(runOnly[1]) : null;
+    const validDate = buildValidDate(runDateText, runHour, stepHours);
 
     return {
-      key: String(safeHours).padStart(3, "0"),
-      hours: safeHours,
-      label: `T+${safeHours}h`,
-      runLabel: buildRunLabel(runDate, runHour),
-      validLabel: buildValidLabel(runDate, runHour, safeHours, validHour, dayOffset),
+      key,
+      stepHours,
+      stepLabel: `T+${stepHours}`,
+      runDateText,
+      runHour,
+      runLabel: formatRunLabel(runDateText, runHour),
+      validUtcLabel: validDate ? formatUtcDateTime(validDate) : formatFallbackValidUtc(runHour, stepHours),
+      validUkLabel: validDate ? formatUkDateTime(validDate) : "needs run date",
       fileId: text
     };
   }
 
-  function buildRunLabel(runDate, runHour) {
-    if (runDate && Number.isFinite(runHour)) {
-      return `${formatRunDate(runDate)} ${pad2(runHour)}Z run`;
-    }
-    if (Number.isFinite(runHour)) return `${pad2(runHour)}Z run`;
-    return "model run";
+  function buildValidDate(runDateText, runHour, stepHours) {
+    if (!runDateText || !Number.isFinite(runHour)) return null;
+    const year = Number(runDateText.slice(0, 4));
+    const month = Number(runDateText.slice(4, 6));
+    const day = Number(runDateText.slice(6, 8));
+    if (!year || !month || !day) return null;
+    return new Date(Date.UTC(year, month - 1, day, runHour + stepHours, 0, 0));
   }
 
-  function buildValidLabel(runDate, runHour, hours, validHour, dayOffset) {
-    if (runDate && Number.isFinite(runHour)) {
-      const year = Number(runDate.slice(0, 4));
-      const month = Number(runDate.slice(4, 6)) - 1;
-      const day = Number(runDate.slice(6, 8));
-      const valid = new Date(Date.UTC(year, month, day, runHour + hours, 0, 0));
-      return `${formatValidDate(valid)} UTC (${hours}h after ${pad2(runHour)}Z run)`;
-    }
-    if (Number.isFinite(validHour)) {
-      const dayText = dayOffset ? `, day +${dayOffset}` : ", same day";
-      return `${pad2(validHour)}:00 from ${pad2(runHour)}Z run${dayText}`;
-    }
-    return `T+${hours}h from selected run`;
+  function formatRunLabel(runDateText, runHour) {
+    if (!Number.isFinite(runHour)) return "Run not parsed";
+    const runText = `${pad2(runHour)}Z UTC`;
+    if (!runDateText) return runText;
+    return `${formatRunDate(runDateText)} ${runText}`;
   }
 
-  function formatRunDate(value) {
-    return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+  function formatFallbackValidUtc(runHour, stepHours) {
+    if (!Number.isFinite(runHour)) return "not parsed";
+    const validHour = (runHour + stepHours) % 24;
+    const dayOffset = Math.floor((runHour + stepHours) / 24);
+    return `${pad2(validHour)}:00 UTC${dayOffset ? ` +${dayOffset}d` : ""}`;
   }
 
-  function formatValidDate(date) {
-    return date.toLocaleString("en-GB", {
+  function formatRunDate(text) {
+    if (!/^20\d{6}$/.test(text)) return text;
+    return `${text.slice(6, 8)}/${text.slice(4, 6)}/${text.slice(0, 4)}`;
+  }
+
+  function formatUtcDateTime(date) {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "UTC",
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(date) + " UTC";
+  }
+
+  function formatUkDateTime(date) {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: UK_TIME_ZONE,
       weekday: "short",
       day: "2-digit",
       month: "short",
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-      timeZone: "UTC"
-    }).replace(",", "");
+      timeZoneName: "short"
+    }).format(date);
   }
 
-  function pad2(value) {
-    return String(value).padStart(2, "0");
-  }
+  function applyFrameUi() {
+    const index = Math.max(0, state.frames.findIndex((frame) => frame.key === state.frameKey));
+    const frame = state.frames[index] || null;
 
-  function formatModelRun(value) {
-    const text = String(value || "");
-    if (!/^20\d{8}$/.test(text)) return text;
-    return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)} ${text.slice(8, 10)}Z`;
-  }
+    els.frameSlider.disabled = state.frames.length <= 1;
+    els.frameSlider.min = "0";
+    els.frameSlider.max = String(Math.max(0, state.frames.length - 1));
+    els.frameSlider.value = String(index);
+    els.prevFrame.disabled = state.loading || state.frames.length <= 1 || index <= 0;
+    els.nextFrame.disabled = state.loading || state.frames.length <= 1 || index >= state.frames.length - 1;
 
-  function normaliseOrderId(value) {
-    return String(value || "").trim().toLowerCase().replace(/\s+/g, "-");
-  }
-
-  function getApiKey() {
-    return els.key.value.trim();
-  }
-
-  function getOrderId() {
-    return normaliseOrderId(els.order.value);
-  }
-
-  function cacheKey(orderId) {
-    return `${STORAGE.cachePrefix}${orderId}`;
-  }
-
-  function readCachedFiles(orderId) {
-    try {
-      const raw = localStorage.getItem(cacheKey(orderId));
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed?.files)) return null;
-      return parsed.files;
-    } catch {
-      return null;
+    if (!frame) {
+      els.frameCount.textContent = state.fileIds.length ? "No matching frames" : "Load order first";
+      els.runLabel.textContent = "--";
+      els.stepLabel.textContent = "--";
+      els.validUtcLabel.textContent = "--";
+      els.validUkLabel.textContent = "--";
+      els.compactLayer.textContent = LAYERS[state.layer].label;
+      els.compactStep.textContent = "--";
+      els.compactUtc.textContent = "Valid UTC: --";
+      els.compactUk.textContent = "Valid UK: --";
+      els.metaLabel.textContent = state.fileIds.length ? LAYERS[state.layer].empty : "Full model extent will appear after the order list loads.";
+      return;
     }
+
+    const first = state.frames[0];
+    const last = state.frames[state.frames.length - 1];
+    els.frameCount.textContent = `${index + 1}/${state.frames.length} Â· ${first.stepLabel} to ${last.stepLabel}`;
+    els.runLabel.textContent = frame.runLabel;
+    els.stepLabel.textContent = frame.stepLabel;
+    els.validUtcLabel.textContent = frame.validUtcLabel;
+    els.validUkLabel.textContent = frame.validUkLabel;
+    els.compactLayer.textContent = LAYERS[state.layer].label;
+    els.compactStep.textContent = frame.stepLabel;
+    els.compactUtc.textContent = `UTC: ${frame.validUtcLabel}`;
+    els.compactUk.textContent = `UK: ${frame.validUkLabel}`;
+    els.metaLabel.textContent = `Selected file: ${state.selectedFileId || frame.fileId}`;
   }
 
-  function writeCachedFiles(orderId, files) {
-    try {
-      localStorage.setItem(cacheKey(orderId), JSON.stringify({
-        orderId,
-        savedAt: new Date().toISOString(),
-        files
-      }));
-    } catch (error) {
-      console.warn("Could not cache Met Office file list", error);
+  function applyLayerButtons() {
+    els.layerButtons.forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.layer === state.layer);
+    });
+  }
+
+  function applyViewButtons() {
+    const rainfall = state.layer === "rainfall";
+    if (!rainfall && state.viewMode !== "raw") state.viewMode = "raw";
+    els.cleanView.disabled = !rainfall || state.loading;
+    els.rawView.disabled = state.loading;
+    els.cleanView.classList.toggle("is-active", state.viewMode === "clean" && rainfall);
+    els.rawView.classList.toggle("is-active", state.viewMode === "raw" || !rainfall);
+  }
+
+  function applyBandVisibility() {
+    const rainfall = state.layer === "rainfall";
+    els.bandDebug.hidden = !rainfall;
+    els.showLand.checked = state.showLand;
+  }
+
+  function applyImageSource() {
+    if (state.viewMode === "raw" || state.layer !== "rainfall") {
+      els.image.src = state.rawUrl || state.cleanUrl || "";
+      return;
     }
+    els.image.src = state.cleanUrl || state.rawUrl || "";
   }
 
-  function updateSavedNote(message = "") {
-    const hasKey = Boolean(localStorage.getItem(STORAGE.key));
-    const orderId = localStorage.getItem(STORAGE.order) || "not saved";
-    els.storageNote.textContent = message || `Local storage: ${hasKey ? "key saved" : "no key saved"}; order: ${orderId}. Nothing is committed to GitHub.`;
+  function renderBandControls() {
+    els.bandList.replaceChildren(...RAIN_BANDS.map((band, index) => {
+      const row = document.createElement("label");
+      row.className = "mo-band-row";
+
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.bandId = band.id;
+      input.checked = state.visibleBands.has(band.id);
+
+      const swatch = document.createElement("span");
+      swatch.className = "mo-band-swatch";
+      swatch.style.background = band.hex;
+
+      const main = document.createElement("span");
+      main.className = "mo-band-main";
+
+      const title = document.createElement("strong");
+      title.textContent = band.label;
+
+      const detail = document.createElement("span");
+      detail.textContent = band.mmh;
+
+      main.append(title, detail);
+
+      const count = document.createElement("span");
+      count.className = "mo-band-count";
+      count.textContent = formatCount(state.counts.bands[index] || 0);
+
+      row.append(input, swatch, main, count);
+      return row;
+    }));
   }
 
-  function setStatus(title, body) {
-    els.status.innerHTML = `<strong>${escapeHtml(title)}</strong>${escapeHtml(body)}`;
+  function renderCounts() {
+    const items = [
+      ["Land", state.counts.land],
+      ["Hidden rain", state.counts.hiddenRain],
+      ["Map/background", state.counts.mapInk],
+      ["Unmatched", state.counts.unmatched]
+    ];
+
+    els.countGrid.replaceChildren(...items.map(([label, count]) => {
+      const box = document.createElement("div");
+      const labelEl = document.createElement("span");
+      labelEl.textContent = label;
+      const countEl = document.createElement("strong");
+      countEl.textContent = formatCount(count);
+      box.append(labelEl, countEl);
+      return box;
+    }));
+  }
+
+  function togglePanel() {
+    state.panelCollapsed = !state.panelCollapsed;
+    localStorage.setItem(STORAGE.panelCollapsed, state.panelCollapsed ? "true" : "false");
+    applyPanelState();
+  }
+
+  function applyPanelState() {
+    els.panel.classList.toggle("is-collapsed", state.panelCollapsed);
+    els.panelToggle.setAttribute("aria-expanded", state.panelCollapsed ? "false" : "true");
+    els.panelToggleText.textContent = state.panelCollapsed ? "Expand" : "Collapse";
   }
 
   function showSettings(show) {
     els.settingsPanel.hidden = !show;
   }
 
-  function disableButtons(disabled) {
+  function restoreSettingsInputs() {
+    els.apiKey.value = localStorage.getItem(STORAGE.key) || "";
+    els.orderId.value = localStorage.getItem(STORAGE.order) || "maps-uk1";
+    updateStorageNote();
+  }
+
+  function saveSettings() {
+    const key = getApiKey();
+    const orderId = getOrderId();
+    if (key) localStorage.setItem(STORAGE.key, key);
+    if (orderId) localStorage.setItem(STORAGE.order, orderId);
+    els.orderId.value = orderId || els.orderId.value.trim();
+    updateStorageNote("Saved locally on this device.");
+  }
+
+  function forgetSettings() {
+    const orderId = getOrderId();
+    clearImageUrls();
+    localStorage.removeItem(STORAGE.key);
+    localStorage.removeItem(STORAGE.order);
+    localStorage.removeItem(STORAGE.layer);
+    localStorage.removeItem(STORAGE.frame);
+    localStorage.removeItem(STORAGE.view);
+    localStorage.removeItem(STORAGE.visibleBands);
+    localStorage.removeItem(STORAGE.showLand);
+    localStorage.removeItem(STORAGE.panelCollapsed);
+    if (orderId) localStorage.removeItem(cacheKey(orderId));
+
+    state.fileIds = [];
+    state.layerFiles = [];
+    state.frames = [];
+    state.selectedFileId = "";
+    state.layer = "rainfall";
+    state.frameKey = "000";
+    state.viewMode = "clean";
+    state.visibleBands = new Set(RAIN_BANDS.map((band) => band.id));
+    state.showLand = true;
+    state.rawBlob = null;
+    state.counts = emptyCounts();
+
+    els.apiKey.value = "";
+    els.orderId.value = "maps-uk1";
+    els.image.hidden = true;
+    els.placeholder.hidden = false;
+
+    renderBandControls();
+    renderCounts();
+    applyLayerButtons();
+    applyViewButtons();
+    applyBandVisibility();
+    applyFrameUi();
+    updateStorageNote("Saved key/order removed from this browser.");
+    setStatus("Saved key removed", "Paste the Map Images key again when needed. Cached files were removed for the current order.");
+    showSettings(true);
+  }
+
+  function getApiKey() {
+    return els.apiKey.value.trim() || localStorage.getItem(STORAGE.key) || "";
+  }
+
+  function getOrderId() {
+    return normaliseOrderId(els.orderId.value || localStorage.getItem(STORAGE.order) || "maps-uk1");
+  }
+
+  function normaliseOrderId(value) {
+    return String(value || "").trim().replace(/^\/+|\/+$/g, "");
+  }
+
+  function updateStorageNote(message) {
+    els.storageNote.textContent = message || "Key/order are stored only in browser localStorage, not GitHub.";
+  }
+
+  function setStatus(title, detail) {
+    els.status.replaceChildren();
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    const span = document.createElement("span");
+    span.textContent = detail;
+    els.status.append(strong, span);
+  }
+
+  function disableControls(disabled) {
     els.layerButtons.forEach((button) => { button.disabled = disabled; });
-    els.refreshButton.disabled = disabled;
-    els.forgetButton.disabled = disabled;
-    els.prevFrame.disabled = disabled || frames.length <= 1;
-    els.nextFrame.disabled = disabled || frames.length <= 1;
-    els.frameSlider.disabled = disabled || frames.length <= 1;
-    updateViewToggle();
+    els.refreshOrder.disabled = disabled;
+    els.saveSettings.disabled = disabled;
+    els.prevFrame.disabled = disabled || state.frames.length <= 1;
+    els.nextFrame.disabled = disabled || state.frames.length <= 1;
+    els.frameSlider.disabled = disabled || state.frames.length <= 1;
+    els.cleanView.disabled = disabled || state.layer !== "rainfall";
+    els.rawView.disabled = disabled;
+    els.allBands.disabled = disabled;
+    els.noBands.disabled = disabled;
+    applyFrameUi();
+    applyViewButtons();
   }
 
-  function clearImageUrl() {
-    if (rawImageObjectUrl) URL.revokeObjectURL(rawImageObjectUrl);
-    if (atlasImageObjectUrl && atlasImageObjectUrl !== rawImageObjectUrl) URL.revokeObjectURL(atlasImageObjectUrl);
-    rawImageObjectUrl = "";
-    atlasImageObjectUrl = "";
+  function clearImageUrls() {
+    if (state.rawUrl) URL.revokeObjectURL(state.rawUrl);
+    if (state.cleanUrl && state.cleanUrl !== state.rawUrl) URL.revokeObjectURL(state.cleanUrl);
+    state.rawUrl = "";
+    state.cleanUrl = "";
+    els.image.removeAttribute("src");
   }
 
-  function setViewMode(mode) {
-    selectedViewMode = mode === "raw" ? "raw" : "atlas";
-    localStorage.setItem(STORAGE.viewMode, selectedViewMode);
-    updateViewToggle();
-    applySelectedImageUrl();
-  }
+  function findFileIds(json) {
+    const output = new Set();
 
-  function updateViewToggle() {
-    const rainfallMode = selectedLayer === "rainfall";
-    els.atlasColourButton.classList.toggle("is-active", selectedViewMode !== "raw");
-    els.rawColourButton.classList.toggle("is-active", selectedViewMode === "raw");
-    els.atlasColourButton.disabled = !rainfallMode || loadingImage;
-    els.rawColourButton.disabled = !rainfallMode || loadingImage;
-  }
+    visit(json, 0);
+    return [...output].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
-  function applySelectedImageUrl() {
-    const useRaw = selectedLayer !== "rainfall" || selectedViewMode === "raw";
-    const url = useRaw ? rawImageObjectUrl : atlasImageObjectUrl;
-    if (url) els.image.src = url;
-    els.image.classList.toggle("is-raw-source", useRaw);
-    els.image.classList.toggle("is-atlas-source", !useRaw);
-  }
+    function visit(value, depth) {
+      if (depth > 8 || value == null) return;
 
-  function readVisibleRainBands() {
-    try {
-      const parsed = JSON.parse(localStorage.getItem(STORAGE.visibleBands) || "null");
-      if (Array.isArray(parsed)) {
-        const allowed = new Set(RAIN_BANDS.map((band) => band.id));
-        const visible = parsed.filter((id) => allowed.has(id));
-        if (visible.length) return new Set(visible);
+      if (typeof value === "string") {
+        if (looksLikeFileId(value)) output.add(value);
+        return;
       }
-    } catch {}
+
+      if (Array.isArray(value)) {
+        value.forEach((item) => visit(item, depth + 1));
+        return;
+      }
+
+      if (typeof value === "object") {
+        const candidate = value.fileId || value.filename || value.fileName || value.name || value.id || value.path;
+        if (typeof candidate === "string" && looksLikeFileId(candidate)) output.add(candidate);
+        Object.values(value).forEach((item) => visit(item, depth + 1));
+      }
+    }
+  }
+
+  function looksLikeFileId(text) {
+    const value = String(text || "");
+    if (!value) return false;
+    if (/\.png(?:$|\?)/i.test(value)) return true;
+    if (/(?:^|[_\-./])ts\d{1,3}(?=[_\-./]|$)/i.test(value)) return true;
+    return /(rain|precip|cloud|pressure|mslp|temp|temperature)/i.test(value) && /(\d{8}|ts\d{1,3})/i.test(value);
+  }
+
+  function readCachedFiles(orderId) {
+    try {
+      const text = localStorage.getItem(cacheKey(orderId));
+      const json = text ? JSON.parse(text) : null;
+      return Array.isArray(json?.files) ? json.files.filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function writeCachedFiles(orderId, files) {
+    const payload = {
+      version: VERSION,
+      cachedAt: new Date().toISOString(),
+      files
+    };
+    localStorage.setItem(cacheKey(orderId), JSON.stringify(payload));
+  }
+
+  function cacheKey(orderId) {
+    return `${STORAGE.cachePrefix}${orderId}`;
+  }
+
+  function readVisibleBands() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE.visibleBands) || "null");
+      if (Array.isArray(saved)) return new Set(saved.filter((id) => RAIN_BANDS.some((band) => band.id === id)));
+    } catch {
+      // Fall back to all bands.
+    }
     return new Set(RAIN_BANDS.map((band) => band.id));
   }
 
-  function formatPixelCount(value) {
-    const count = Number(value || 0);
-    if (!count) return "0";
-    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-    if (count >= 1000) return `${Math.round(count / 100) / 10}k`;
-    return String(count);
+  function getStoredLayer() {
+    const stored = localStorage.getItem(STORAGE.layer);
+    return LAYERS[stored] ? stored : "rainfall";
   }
 
-  function unique(values) {
-    return [...new Set(values)];
+  function emptyCounts() {
+    return {
+      bands: new Array(RAIN_BANDS.length).fill(0),
+      land: 0,
+      hiddenRain: 0,
+      mapInk: 0,
+      transparent: 0,
+      unmatched: 0
+    };
+  }
+
+  function formatCount(value) {
+    return Number(value || 0).toLocaleString("en-GB");
+  }
+
+  function safeNumber(value, fallback) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  }
+
+  function pad2(value) {
+    return String(value).padStart(2, "0");
   }
 
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
   }
 
-  function escapeHtml(value) {
-    return String(value).replace(/[&<>"]/g, (char) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;"
-    })[char]);
+  function byId(id) {
+    const element = document.getElementById(id);
+    if (!element) throw new Error(`Missing required element #${id}`);
+    return element;
+  }
+
+  function getErrorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
   }
 })();
