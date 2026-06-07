@@ -766,3 +766,181 @@ button, a, input, select {
     bottom: calc(var(--safe-bottom) + 12px);
   }
 }
+
+
+/* v0.2.3: max-detail site popup and true blue/cyan RainViewer repaint support. */
+.atlas-radar-canvas {
+  image-rendering: auto;
+}
+
+.atlas-radar-css-fallback {
+  filter: hue-rotate(145deg) saturate(1.7) brightness(1.08);
+}
+
+.leaflet-popup-content {
+  margin: 0 !important;
+  width: auto !important;
+}
+
+.site-weather-popup {
+  width: min(330px, 78vw);
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  padding: 14px;
+  color: var(--text);
+}
+
+.site-popup-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 10px;
+}
+
+.site-popup-header h3 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.04;
+}
+
+.risk-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(34, 217, 255, 0.14);
+  color: var(--cyan);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.risk-moderate .risk-badge { background: rgba(242, 255, 0, 0.16); color: var(--yellow); }
+.risk-high .risk-badge { background: rgba(255, 138, 31, 0.16); color: var(--orange); }
+.risk-severe .risk-badge { background: rgba(255, 49, 49, 0.16); color: #ff8e8e; }
+
+.site-popup-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.site-popup-meta span {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.07);
+}
+
+.popup-hazard-strip {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--cyan);
+  border-radius: 14px;
+  background: rgba(34, 217, 255, 0.1);
+}
+
+.risk-moderate .popup-hazard-strip { border-left-color: var(--yellow); background: rgba(242,255,0,0.09); }
+.risk-high .popup-hazard-strip { border-left-color: var(--orange); background: rgba(255,138,31,0.1); }
+.risk-severe .popup-hazard-strip { border-left-color: var(--red); background: rgba(255,49,49,0.1); }
+
+.popup-hazard-strip strong {
+  font-size: 15px;
+}
+
+.popup-hazard-strip span,
+.popup-footnote,
+.popup-check-list,
+.popup-metric small,
+.popup-hour-card small {
+  color: var(--text-soft);
+}
+
+.popup-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.popup-metric,
+.popup-hour-card {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.07);
+}
+
+.popup-metric span {
+  color: var(--cyan);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.popup-metric strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.popup-section {
+  margin-top: 13px;
+}
+
+.popup-section h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.popup-hour-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.popup-hour-card {
+  text-align: center;
+}
+
+.popup-hour-card span {
+  font-size: 19px;
+}
+
+.popup-hour-card b {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.popup-check-list {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.35;
+}
+
+.popup-check-list li + li {
+  margin-top: 5px;
+}
+
+.popup-footnote {
+  margin: 12px 0 0;
+  padding: 9px 10px;
+  border-radius: 13px;
+  background: rgba(255,255,255,0.06);
+  font-size: 12px;
+}
