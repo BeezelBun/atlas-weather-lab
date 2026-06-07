@@ -2031,7 +2031,7 @@ button, a, input, select {
 }
 
 
-/* v0.3.7: Met Office rainfall band filters. */
+/* v0.3.8: Met Office rainfall band filters. */
 .metoffice-band-filter-panel {
   display: grid;
   gap: 8px;
@@ -2143,5 +2143,58 @@ button, a, input, select {
   .metoffice-band-toggle {
     padding: 5px;
     gap: 5px;
+  }
+}
+
+
+/* v0.3.8: keep the rainfall band debugger collapsible on mobile. */
+.metoffice-band-panel-toggle {
+  width: 100%;
+  min-height: 38px;
+  margin-top: 10px;
+  border: 1px solid rgba(34, 217, 255, 0.38);
+  border-radius: 14px;
+  background: rgba(34, 217, 255, 0.08);
+  color: var(--text);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.metoffice-band-panel-toggle[hidden] {
+  display: none;
+}
+
+.metoffice-frame-panel.is-bands-closed .metoffice-band-filter-panel {
+  display: none;
+}
+
+.metoffice-frame-panel.is-bands-closed {
+  max-height: min(36vh, 335px);
+}
+
+.metoffice-frame-panel.is-bands-open {
+  max-height: min(64vh, 640px);
+}
+
+@media (max-width: 720px) {
+  .metoffice-frame-panel {
+    left: 10px;
+    right: 10px;
+    bottom: calc(var(--safe-bottom) + 14px);
+  }
+
+  .metoffice-frame-panel.is-bands-closed {
+    max-height: min(38vh, 350px);
+  }
+
+  .metoffice-frame-panel.is-bands-open {
+    max-height: min(58vh, 560px);
+  }
+
+  .metoffice-band-panel-toggle {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    backdrop-filter: blur(12px);
   }
 }
