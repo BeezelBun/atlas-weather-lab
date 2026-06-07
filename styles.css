@@ -1308,3 +1308,55 @@ button, a, input, select {
   background: rgba(96,112,128,0.85);
   box-shadow: 0 0 12px rgba(96,112,128,0.35);
 }
+
+
+/* v0.2.7: risk means operational seriousness; weather colour stays separate. */
+.site-dot.risk-level-none,
+.site-dot.risk-level-unloaded,
+.site-dot.risk-level-low {
+  border-color: rgba(255,255,255,0.94);
+}
+
+.site-dot.risk-level-moderate {
+  border-color: #ffad33;
+  box-shadow: 0 0 0 5px rgba(255,173,51,0.24), 0 0 18px rgba(255,173,51,0.34);
+}
+
+.site-dot.risk-level-high,
+.site-dot.risk-level-severe {
+  border-color: #ff3131;
+  box-shadow: 0 0 0 6px rgba(255,49,49,0.28), 0 0 22px rgba(255,49,49,0.46);
+}
+
+.site-dot.wx-storm.risk-level-moderate,
+.site-dot.wx-storm.risk-level-low {
+  background: #22d9ff;
+}
+
+.popup-hazard-strip.risk-low,
+.risk-low .popup-hazard-strip {
+  border-left-color: var(--cyan);
+  background: rgba(34,217,255,0.08);
+}
+
+.popup-hazard-strip.risk-moderate,
+.risk-moderate .popup-hazard-strip {
+  border-left-color: #ffad33;
+  background: rgba(255,173,51,0.13);
+}
+
+.popup-hazard-strip.risk-high,
+.risk-high .popup-hazard-strip,
+.popup-hazard-strip.risk-severe,
+.risk-severe .popup-hazard-strip {
+  border-left-color: var(--red);
+  background: rgba(255,49,49,0.13);
+}
+
+.operation-check.severity-moderate { border-left-color: #ffad33; }
+.operation-check.severity-high,
+.operation-check.severity-severe { border-left-color: var(--red); }
+
+.compact-risk-card.wx-storm {
+  border-left-color: #ffad33;
+}
