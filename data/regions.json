@@ -1,0 +1,66 @@
+{
+  "version": "0.1.0",
+  "note": "Dummy/public-style test data only. Replace with your Atlas region files later. No internal access notes, contacts, links, ports, IPs, spares, configs, jobs or faults.",
+  "regions": [
+    {
+      "id": "west-wales",
+      "name": "West Wales",
+      "bounds": [[51.55, -5.65], [52.55, -3.65]],
+      "sites": [
+        { "id": "WW-001", "name": "Preseli", "lat": 51.946, "lon": -4.735 },
+        { "id": "WW-002", "name": "Haverfordwest", "lat": 51.801, "lon": -4.969 },
+        { "id": "WW-003", "name": "Fishguard", "lat": 52.004, "lon": -4.982 },
+        { "id": "WW-004", "name": "Blaenplwyf", "lat": 52.386, "lon": -4.075 },
+        { "id": "WW-005", "name": "Carmarthen", "lat": 51.857, "lon": -4.312 }
+      ]
+    },
+    {
+      "id": "north-wales",
+      "name": "North Wales",
+      "bounds": [[52.55, -4.95], [53.45, -2.8]],
+      "sites": [
+        { "id": "NW-001", "name": "Llanddona", "lat": 53.294, "lon": -4.126 },
+        { "id": "NW-002", "name": "Moel-y-Parc", "lat": 53.217, "lon": -3.255 },
+        { "id": "NW-003", "name": "Bangor", "lat": 53.227, "lon": -4.129 },
+        { "id": "NW-004", "name": "Wrexham", "lat": 53.046, "lon": -2.993 },
+        { "id": "NW-005", "name": "Bala", "lat": 52.912, "lon": -3.598 }
+      ]
+    },
+    {
+      "id": "mid-wales",
+      "name": "Mid Wales",
+      "bounds": [[51.95, -4.15], [52.75, -2.75]],
+      "sites": [
+        { "id": "MW-001", "name": "Aberystwyth", "lat": 52.416, "lon": -4.082 },
+        { "id": "MW-002", "name": "Llandrindod Wells", "lat": 52.242, "lon": -3.378 },
+        { "id": "MW-003", "name": "Newtown", "lat": 52.513, "lon": -3.314 },
+        { "id": "MW-004", "name": "Brecon", "lat": 51.947, "lon": -3.391 },
+        { "id": "MW-005", "name": "Machynlleth", "lat": 52.590, "lon": -3.854 }
+      ]
+    },
+    {
+      "id": "south-wales",
+      "name": "South Wales",
+      "bounds": [[51.25, -4.3], [51.95, -2.55]],
+      "sites": [
+        { "id": "SW-001", "name": "Swansea", "lat": 51.621, "lon": -3.944 },
+        { "id": "SW-002", "name": "Wenvoe", "lat": 51.456, "lon": -3.284 },
+        { "id": "SW-003", "name": "Cardiff", "lat": 51.481, "lon": -3.179 },
+        { "id": "SW-004", "name": "Cwmbran", "lat": 51.654, "lon": -3.020 },
+        { "id": "SW-005", "name": "Abergavenny", "lat": 51.825, "lon": -3.018 }
+      ]
+    },
+    {
+      "id": "border-west",
+      "name": "Welsh Border",
+      "bounds": [[51.55, -3.1], [52.75, -2.0]],
+      "sites": [
+        { "id": "BW-001", "name": "Hereford", "lat": 52.056, "lon": -2.716 },
+        { "id": "BW-002", "name": "Shrewsbury", "lat": 52.707, "lon": -2.755 },
+        { "id": "BW-003", "name": "Monmouth", "lat": 51.812, "lon": -2.714 },
+        { "id": "BW-004", "name": "Ludlow", "lat": 52.367, "lon": -2.718 },
+        { "id": "BW-005", "name": "Hay-on-Wye", "lat": 52.075, "lon": -3.125 }
+      ]
+    }
+  ]
+}
