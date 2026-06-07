@@ -1,9 +1,9 @@
-/* Atlas Weather API Lab shared utilities v0.2.0
+/* Atlas Weather API Lab shared utilities v0.2.2
    Static-safe: no committed API keys, no internal operational data.
 */
 
 window.AtlasWeatherLab = (() => {
-  const version = "0.2.0";
+  const version = "0.2.2";
   const regionsUrl = "data/regions.json";
 
   const fallbackRegions = [
@@ -208,6 +208,36 @@ window.AtlasWeatherLab = (() => {
     if (el) el.innerHTML = html;
   }
 
+
+  function bindPanelToggles(root = document) {
+    root.querySelectorAll("[data-panel-close]").forEach(button => {
+      const panelId = button.dataset.panelClose;
+      const panel = document.getElementById(panelId);
+      if (!panel || button.dataset.panelCloseBound === "true") return;
+      button.dataset.panelCloseBound = "true";
+
+      button.addEventListener("click", () => {
+        panel.hidden = true;
+        const openButton = document.querySelector(`[data-panel-open="${panelId}"]`);
+        if (openButton) openButton.hidden = false;
+      });
+    });
+
+    root.querySelectorAll("[data-panel-open]").forEach(button => {
+      const panelId = button.dataset.panelOpen;
+      const panel = document.getElementById(panelId);
+      if (!panel || button.dataset.panelOpenBound === "true") return;
+      button.dataset.panelOpenBound = "true";
+
+      button.addEventListener("click", () => {
+        panel.hidden = false;
+        button.hidden = true;
+      });
+    });
+  }
+
+  bindPanelToggles();
+
   return {
     version,
     loadRegions,
@@ -224,6 +254,7 @@ window.AtlasWeatherLab = (() => {
     riskColor,
     riskRadius,
     setText,
-    setHtml
+    setHtml,
+    bindPanelToggles
   };
 })();
