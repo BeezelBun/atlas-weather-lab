@@ -1,10 +1,10 @@
-/* Met Office DataHub Map Images full-screen preview v0.3.6
+/* Met Office DataHub Map Images full-screen preview v0.3.7
    - Restores provider navigation on the full-screen page.
    - Uses locally saved Map Images key/API Order ID.
    - Caches the order file list so the order does not relist hundreds of files every view.
    - Shows one selected PNG at a time with layer buttons and the full available model time extent.
    - Parses Met Office filenames using ts0/ts1/ts168 style time steps.
-   - Repaints rainfall images by Met Office mm/hour palette bands into an exact Met Office mm/hour legend colours with rainfall images requested without land fill.
+   - Repaints rainfall images by Met Office mm/hour palette bands into an exact Met Office mm/hour legend colours with exact rainfall-band filters and a separate #B3D0AE land fill.
    - Does not commit keys or order data to GitHub.
 */
 (() => {
@@ -16,7 +16,9 @@
     layer: "atlasWeatherLab.metOffice.mapImages.layer",
     timeStep: "atlasWeatherLab.metOffice.mapImages.timeStep",
     viewMode: "atlasWeatherLab.metOffice.mapImages.viewMode",
-    cachePrefix: "atlasWeatherLab.metOffice.mapImages.fileCache.v036."
+    visibleBands: "atlasWeatherLab.metOffice.mapImages.visibleBands",
+    showLand: "atlasWeatherLab.metOffice.mapImages.showLand",
+    cachePrefix: "atlasWeatherLab.metOffice.mapImages.fileCache.v037."
   };
 
   const LAYERS = {
@@ -50,17 +52,18 @@
     }
   };
 
-  const RAIN_BANDS = [
-    { id: "lt05", label: "<0.5", detail: "very light", mmh: "<0.5 mm/h", atlas: [1, 0, 251, 0.88], rawSamples: [[1, 0, 251], [2, 28, 225], [0, 0, 190], [18, 42, 210]] },
-    { id: "05-1", label: "0.5-1", detail: "light", mmh: "0.5-1 mm/h", atlas: [58, 99, 247, 0.90], rawSamples: [[58, 99, 247], [45, 95, 245], [42, 116, 255], [0, 105, 230]] },
-    { id: "1-2", label: "1-2", detail: "showery", mmh: "1-2 mm/h", atlas: [15, 188, 255, 0.92], rawSamples: [[15, 188, 255], [70, 190, 240], [67, 210, 255], [0, 188, 230]] },
-    { id: "2-4", label: "2-4", detail: "moderate", mmh: "2-4 mm/h", atlas: [15, 162, 0, 0.93], rawSamples: [[15, 162, 0], [40, 170, 65], [70, 190, 60], [0, 165, 90]] },
-    { id: "4-8", label: "4-8", detail: "heavy", mmh: "4-8 mm/h", atlas: [252, 202, 21, 0.95], rawSamples: [[252, 202, 21], [245, 225, 45], [255, 238, 65], [230, 214, 30]] },
-    { id: "8-16", label: "8-16", detail: "very heavy", mmh: "8-16 mm/h", atlas: [253, 150, 25, 0.96], rawSamples: [[253, 150, 25], [255, 172, 48], [255, 146, 35], [242, 126, 22]] },
-    { id: "16-32", label: "16-32", detail: "intense", mmh: "16-32 mm/h", atlas: [252, 6, 0, 0.98], rawSamples: [[252, 6, 0], [245, 50, 45], [235, 38, 35], [255, 71, 52]] },
-    { id: "gt32", label: ">32", detail: "extreme", mmh: ">32 mm/h", atlas: [179, 5, 0, 0.98], rawSamples: [[179, 5, 0], [150, 0, 0], [190, 0, 0], [120, 0, 0]] }
-  ];
+  const LAND_FILL = { label: "Land", hex: "#B3D0AE", rgb: [179, 208, 174], alpha: 1 };
 
+  const RAIN_BANDS = [
+    { id: "lt05", label: "<0.5", detail: "very light", mmh: "<0.5 mm/h", hex: "#0100FB", atlas: [1, 0, 251, 0.92], rawSamples: [[1, 0, 251], [2, 28, 225], [0, 0, 190], [18, 42, 210]] },
+    { id: "05-1", label: "0.5-1", detail: "light", mmh: "0.5-1 mm/h", hex: "#3A63F7", atlas: [58, 99, 247, 0.92], rawSamples: [[58, 99, 247], [45, 95, 245], [42, 116, 255], [0, 105, 230]] },
+    { id: "1-2", label: "1-2", detail: "showery", mmh: "1-2 mm/h", hex: "#0FBCFF", atlas: [15, 188, 255, 0.92], rawSamples: [[15, 188, 255], [70, 190, 240], [67, 210, 255], [0, 188, 230]] },
+    { id: "2-4", label: "2-4", detail: "moderate", mmh: "2-4 mm/h", hex: "#0FA200", atlas: [15, 162, 0, 0.94], rawSamples: [[15, 162, 0], [40, 170, 65], [70, 190, 60], [0, 165, 90]] },
+    { id: "4-8", label: "4-8", detail: "heavy", mmh: "4-8 mm/h", hex: "#FCCA15", atlas: [252, 202, 21, 0.96], rawSamples: [[252, 202, 21], [245, 225, 45], [255, 238, 65], [230, 214, 30]] },
+    { id: "8-16", label: "8-16", detail: "very heavy", mmh: "8-16 mm/h", hex: "#FD9619", atlas: [253, 150, 25, 0.97], rawSamples: [[253, 150, 25], [255, 172, 48], [255, 146, 35], [242, 126, 22]] },
+    { id: "16-32", label: "16-32", detail: "intense", mmh: "16-32 mm/h", hex: "#FC0600", atlas: [252, 6, 0, 0.98], rawSamples: [[252, 6, 0], [245, 50, 45], [235, 38, 35], [255, 71, 52]] },
+    { id: "gt32", label: "32+", detail: "extreme", mmh: "32+ mm/h", hex: "#B30500", atlas: [179, 5, 0, 0.98], rawSamples: [[179, 5, 0], [150, 0, 0], [190, 0, 0], [120, 0, 0]] }
+  ];
   const RAW_RAIN_SAMPLE_POINTS = RAIN_BANDS.flatMap((band, bandIndex) =>
     band.rawSamples.map((rgb) => ({ bandIndex, rgb }))
   );
@@ -70,6 +73,7 @@
     placeholder: document.getElementById("metOfficePlaceholder"),
     status: document.getElementById("metOfficeStatus"),
     legend: document.getElementById("metOfficeLegend"),
+    bandFilters: document.getElementById("metOfficeBandFilters"),
     frameTitle: document.getElementById("metOfficeFrameTitle"),
     frameLabel: document.getElementById("metOfficeFrameLabel"),
     frameMeta: document.getElementById("metOfficeFrameMeta"),
@@ -100,6 +104,11 @@
   let selectedFrameKey = localStorage.getItem(STORAGE.timeStep) || "000";
   let selectedFileId = "";
   let selectedViewMode = localStorage.getItem(STORAGE.viewMode) || "atlas";
+  let visibleRainBands = readVisibleRainBands();
+  let showLandFill = localStorage.getItem(STORAGE.showLand) !== "false";
+  let lastRawBlob = null;
+  let lastRainBandCounts = new Array(RAIN_BANDS.length).fill(0);
+  let lastLandPixelCount = 0;
   let rawImageObjectUrl = "";
   let atlasImageObjectUrl = "";
   let loadingImage = false;
@@ -119,6 +128,22 @@
   function bindEvents() {
     els.layerButtons.forEach((button) => {
       button.addEventListener("click", () => setActiveLayer(button.dataset.layer, { preview: true }));
+    });
+
+    els.bandFilters.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!target?.matches?.("input[data-band-id], input[data-land-fill]")) return;
+      if (target.matches("input[data-land-fill]")) {
+        showLandFill = target.checked;
+        localStorage.setItem(STORAGE.showLand, showLandFill ? "true" : "false");
+      } else {
+        const bandId = target.dataset.bandId;
+        if (target.checked) visibleRainBands.add(bandId);
+        else visibleRainBands.delete(bandId);
+        localStorage.setItem(STORAGE.visibleBands, JSON.stringify([...visibleRainBands]));
+      }
+      renderLegend();
+      repaintCurrentRainfallImage();
     });
 
     els.frameSlider.addEventListener("input", () => {
@@ -189,6 +214,8 @@
     localStorage.setItem(STORAGE.layer, selectedLayer);
     localStorage.setItem(STORAGE.timeStep, selectedFrameKey);
     localStorage.setItem(STORAGE.viewMode, selectedViewMode);
+    localStorage.setItem(STORAGE.visibleBands, JSON.stringify([...visibleRainBands]));
+    localStorage.setItem(STORAGE.showLand, showLandFill ? "true" : "false");
   }
 
   function forgetSavedKey() {
@@ -199,6 +226,8 @@
     localStorage.removeItem(STORAGE.layer);
     localStorage.removeItem(STORAGE.timeStep);
     localStorage.removeItem(STORAGE.viewMode);
+    localStorage.removeItem(STORAGE.visibleBands);
+    localStorage.removeItem(STORAGE.showLand);
     if (orderId) localStorage.removeItem(cacheKey(orderId));
 
     fileIds = [];
@@ -207,6 +236,11 @@
     selectedFileId = "";
     selectedFrameKey = "000";
     selectedViewMode = "atlas";
+    visibleRainBands = readVisibleRainBands();
+    showLandFill = true;
+    lastRawBlob = null;
+    lastRainBandCounts = new Array(RAIN_BANDS.length).fill(0);
+    lastLandPixelCount = 0;
     updateViewToggle();
     els.key.value = "";
     els.order.value = "maps-uk1";
@@ -296,20 +330,42 @@
 
   function renderLegend() {
     if (selectedLayer !== "rainfall") {
+      els.bandFilters.hidden = true;
+      els.bandFilters.innerHTML = "";
       els.legend.innerHTML = `<strong>${escapeHtml(LAYERS[selectedLayer].title)}</strong><span>${escapeHtml(LAYERS[selectedLayer].legend)}</span>`;
       return;
     }
 
-    const rows = RAIN_BANDS.map((band) => {
-      const [r, g, b, alpha] = band.atlas;
-      return `<span class="metoffice-rain-band"><i style="background: rgba(${r}, ${g}, ${b}, ${alpha});"></i><b>${escapeHtml(band.label)}</b><em>${escapeHtml(band.detail)}</em></span>`;
+    els.bandFilters.hidden = false;
+    const bandControls = RAIN_BANDS.map((band, index) => {
+      const checked = visibleRainBands.has(band.id) ? "checked" : "";
+      const count = lastRainBandCounts[index] || 0;
+      return `
+        <label class="metoffice-band-toggle" style="--band-colour:${band.hex}">
+          <input type="checkbox" data-band-id="${escapeHtml(band.id)}" ${checked} />
+          <i aria-hidden="true"></i>
+          <span><b>${escapeHtml(band.label)}</b><em>${escapeHtml(band.mmh)}</em></span>
+          <small>${formatPixelCount(count)}</small>
+        </label>`;
     }).join("");
 
+    els.bandFilters.innerHTML = `
+      <div class="metoffice-filter-title">
+        <strong>Rainfall bands</strong>
+        <span>Tick bands on/off to find what the PNG actually contains.</span>
+      </div>
+      <div class="metoffice-band-grid">${bandControls}</div>
+      <label class="metoffice-band-toggle metoffice-land-toggle" style="--band-colour:${LAND_FILL.hex}">
+        <input type="checkbox" data-land-fill="true" ${showLandFill ? "checked" : ""} />
+        <i aria-hidden="true"></i>
+        <span><b>Land</b><em>${LAND_FILL.hex}</em></span>
+        <small>${formatPixelCount(lastLandPixelCount)}</small>
+      </label>`;
+
+    const activeBands = RAIN_BANDS.filter((band) => visibleRainBands.has(band.id)).map((band) => band.label).join(", ") || "none";
     els.legend.innerHTML = `
-      <strong>Rainfall bands</strong>
-      <span>Atlas colours are mapped from the rendered Met Office rainfall-rate palette.</span>
-      <div class="metoffice-rain-bands">${rows}</div>
-    `;
+      <strong>Rainfall band mapper</strong>
+      <span>Clean mm/h maps visible Met Office rainfall colours into the exact legend colours. Active bands: ${escapeHtml(activeBands)}. Land is repainted as ${LAND_FILL.hex}.</span>`;
   }
 
   function rebuildLayerFiles() {
@@ -422,7 +478,7 @@
     setStatus("Loading image", `${LAYERS[selectedLayer].label} - ${selectedFileId}`);
 
     try {
-      const includeLand = selectedLayer === "rainfall" ? "false" : "true";
+      const includeLand = "true";
       const pngUrl = `${METOFFICE_MAP_IMAGES_BASE}/orders/${encodeURIComponent(orderId)}/latest/${encodeURIComponent(selectedFileId)}/data?includeLand=${includeLand}`;
       const response = await fetch(pngUrl, {
         headers: {
@@ -433,6 +489,7 @@
       if (!response.ok) throw new Error(`Met Office image request returned HTTP ${response.status}`);
 
       const rawBlob = await response.blob();
+      lastRawBlob = selectedLayer === "rainfall" ? rawBlob : null;
       clearImageUrl();
       rawImageObjectUrl = URL.createObjectURL(rawBlob);
       if (selectedLayer === "rainfall") {
@@ -448,7 +505,7 @@
       setStatus(
         "Preview loaded",
         selectedLayer === "rainfall"
-          ? `${LAYERS[selectedLayer].label} - ${selectedFileId}. Clean mm/h bands and raw Met Office views are both ready from this one landless rainfall image request.`
+          ? `${LAYERS[selectedLayer].label} - ${selectedFileId}. Clean mm/h band filters and raw Met Office views are both ready from this one rainfall image request.`
           : `${LAYERS[selectedLayer].label} - ${selectedFileId}. One image request made for this selected frame only.`
       );
     } catch (error) {
@@ -456,6 +513,24 @@
     } finally {
       loadingImage = false;
       disableButtons(false);
+    }
+  }
+
+  async function repaintCurrentRainfallImage() {
+    if (selectedLayer !== "rainfall" || !lastRawBlob || loadingImage) return;
+    loadingImage = true;
+    updateViewToggle();
+    try {
+      if (atlasImageObjectUrl && atlasImageObjectUrl !== rawImageObjectUrl) URL.revokeObjectURL(atlasImageObjectUrl);
+      const atlasBlob = await repaintRainfallBlob(lastRawBlob);
+      atlasImageObjectUrl = URL.createObjectURL(atlasBlob);
+      applySelectedImageUrl();
+      setStatus("Repainted locally", "No Met Office request was made. The selected rainfall bands were reapplied from the cached PNG in this browser.");
+    } catch (error) {
+      setStatus("Repaint error", error.message);
+    } finally {
+      loadingImage = false;
+      updateViewToggle();
     }
   }
 
@@ -470,6 +545,8 @@
 
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
+    const counts = new Array(RAIN_BANDS.length).fill(0);
+    let landCount = 0;
 
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
@@ -477,39 +554,67 @@
       const b = data[i + 2];
       const a = data[i + 3];
 
+      if (a < 8) {
+        data[i + 3] = 0;
+        continue;
+      }
+
+      if (isMetOfficeLand(r, g, b)) {
+        landCount += 1;
+        if (showLandFill) {
+          paintPixel(data, i, LAND_FILL.rgb, LAND_FILL.alpha);
+        } else {
+          data[i + 3] = 0;
+        }
+        continue;
+      }
+
       const bandIndex = classifyMetOfficeRainBand(r, g, b, a);
       if (bandIndex < 0) {
         data[i + 3] = 0;
         continue;
       }
 
-      const colour = RAIN_BANDS[bandIndex].atlas;
-      data[i] = colour[0];
-      data[i + 1] = colour[1];
-      data[i + 2] = colour[2];
-      data[i + 3] = Math.round(colour[3] * 255);
+      counts[bandIndex] += 1;
+      const band = RAIN_BANDS[bandIndex];
+      if (!visibleRainBands.has(band.id)) {
+        data[i + 3] = 0;
+        continue;
+      }
+
+      paintPixel(data, i, band.atlas, band.atlas[3]);
     }
 
+    lastRainBandCounts = counts;
+    lastLandPixelCount = landCount;
     ctx.putImageData(imageData, 0, 0);
+    renderLegend();
     return await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  }
+
+  function paintPixel(data, index, colour, alpha = 1) {
+    data[index] = colour[0];
+    data[index + 1] = colour[1];
+    data[index + 2] = colour[2];
+    data[index + 3] = Math.round(alpha * 255);
   }
 
   function classifyMetOfficeRainBand(r, g, b, a) {
     if (a < 8 || isBackground(r, g, b) || isGreyMapInk(r, g, b)) return -1;
 
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const saturation = max === 0 ? 0 : (max - min) / max;
-    if (saturation < 0.12 && max > 110) return -1;
-
     const nearest = nearestRainBand(r, g, b);
-    if (nearest && nearest.distance <= 12200) return nearest.bandIndex;
+    if (!nearest) return -1;
 
-    // Only reject green land after attempting rainfall-band classification.
-    // The Met Office 2-4 mm/h band is itself green (#0FA200), so rejecting
-    // green before the palette match removes real moderate rainfall.
-    if (isLandMaskGreen(r, g, b)) return -1;
+    // The PNG is rendered and lightly antialiased, so exact hex matching is too strict.
+    // This threshold catches the Met Office legend colours and their immediate blended edges,
+    // but avoids classifying the B3D0AE land fill as 2-4 mm/h green rain.
+    if (nearest.distance <= 9800) return nearest.bandIndex;
+
     return -1;
+  }
+
+  function isMetOfficeLand(r, g, b) {
+    return weightedColourDistance(r, g, b, LAND_FILL.rgb[0], LAND_FILL.rgb[1], LAND_FILL.rgb[2]) <= 5600;
   }
 
   function nearestRainBand(r, g, b) {
@@ -746,6 +851,26 @@
     if (url) els.image.src = url;
     els.image.classList.toggle("is-raw-source", useRaw);
     els.image.classList.toggle("is-atlas-source", !useRaw);
+  }
+
+  function readVisibleRainBands() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(STORAGE.visibleBands) || "null");
+      if (Array.isArray(parsed)) {
+        const allowed = new Set(RAIN_BANDS.map((band) => band.id));
+        const visible = parsed.filter((id) => allowed.has(id));
+        if (visible.length) return new Set(visible);
+      }
+    } catch {}
+    return new Set(RAIN_BANDS.map((band) => band.id));
+  }
+
+  function formatPixelCount(value) {
+    const count = Number(value || 0);
+    if (!count) return "0";
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${Math.round(count / 100) / 10}k`;
+    return String(count);
   }
 
   function unique(values) {
