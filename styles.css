@@ -10,7 +10,7 @@
   --text-dark: #091827;
   --text-dark-soft: rgba(9, 24, 39, 0.7);
   --cyan: #22d9ff;
-  --yellow: #f2ff00;
+  --yellow: #f6d55c;
   --orange: #ff8a1f;
   --red: #ff3131;
   --blue: #2c8cff;
@@ -1244,4 +1244,67 @@ button, a, input, select {
   .raw-debug-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+
+/* v0.2.6 weather lab refinements */
+.radar-timeline-pill {
+  min-width: min(86vw, 560px);
+  justify-content: stretch;
+  grid-template-columns: auto 1fr auto;
+  display: grid;
+  gap: 10px;
+  letter-spacing: 0.08em;
+}
+
+.radar-timeline-pill .mode-pulse {
+  display: none;
+}
+
+.timeline-tag {
+  align-self: center;
+  color: var(--cyan);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.top-frame-slider {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--cyan);
+}
+
+.radar-readout-grid article {
+  min-height: 54px;
+}
+
+.site-dot.wx-normal {
+  width: 18px;
+  height: 18px;
+  background: #f6d55c;
+  border-color: rgba(255,255,255,0.92);
+  box-shadow: 0 0 12px rgba(246,213,92,0.35);
+}
+
+.site-dot.wx-rain {
+  background: #22d9ff;
+  box-shadow: 0 0 20px rgba(34,217,255,0.6);
+}
+
+.site-dot.wx-storm {
+  background: #ff8a1f;
+  box-shadow: 0 0 20px rgba(255,138,31,0.62);
+}
+
+.site-dot.wx-lightning {
+  background: #ff3131;
+  box-shadow: 0 0 20px rgba(255,49,49,0.68);
+}
+
+.site-dot.wx-unloaded {
+  background: rgba(96,112,128,0.85);
+  box-shadow: 0 0 12px rgba(96,112,128,0.35);
 }
