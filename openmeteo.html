@@ -6,7 +6,7 @@
   <title>Open-Meteo Site Risk · Atlas Weather API Lab</title>
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=0.2.5" />
+  <link rel="stylesheet" href="styles.css?v=0.2.6" />
 </head>
 <body>
   <main class="lab-shell map-shell" data-page="openmeteo">
@@ -42,14 +42,14 @@
         </div>
         <button class="panel-close-button" type="button" data-panel-close="providerPanel" aria-label="Close site hazard controls">×</button>
       </div>
-      <p id="statusText">Move the map to load visible region sites. Fetch risk only asks for those visible sample sites.</p>
+      <p id="statusText">Visible region sites and risk values load automatically. Move the map to auto-refresh the shown region set.</p>
       <div class="quick-grid two">
         <article><strong id="regionCount">0</strong><span>Regions</span></article>
         <article><strong id="siteCount">0</strong><span>Sites</span></article>
       </div>
       <div class="button-stack">
-        <button class="primary-action" id="loadSitesButton">Load visible sites</button>
-        <button class="secondary-action" id="fetchRiskButton">Fetch risk</button>
+        <button class="primary-action" id="loadSitesButton">Refresh visible sites</button>
+        <button class="secondary-action" id="fetchRiskButton">Refresh risk</button>
       </div>
       <div class="risk-list compact" id="riskList"></div>
     </section>
@@ -73,6 +73,6 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js?v=0.2.2"></script>
-  <script src="openmeteo.js?v=0.2.5"></script>
+  <script src="openmeteo.js?v=0.2.6"></script>
 </body>
 </html>
