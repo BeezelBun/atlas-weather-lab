@@ -1,5 +1,5 @@
-/* Open-Meteo visible-site risk page v0.2.3
-   Max-detail site popup tester. Keep this deliberately rich so features can be cut later.
+/* Open-Meteo visible-site risk page v0.2.5
+   Maximum-feature site detail tester. Intentionally over-informative so the final Atlas card can be cut down later.
 */
 
 (() => {
@@ -59,7 +59,8 @@
     labelLayer: null,
     blobLayer: null,
     riskBySite: new Map(),
-    markerBySite: new Map()
+    markerBySite: new Map(),
+    selectedSiteId: null
   };
 
   const els = {
@@ -69,7 +70,10 @@
     loadSitesButton: document.getElementById("loadSitesButton"),
     fetchRiskButton: document.getElementById("fetchRiskButton"),
     riskList: document.getElementById("riskList"),
-    siteSearch: document.getElementById("siteSearch")
+    siteSearch: document.getElementById("siteSearch"),
+    detailPanel: document.getElementById("siteDetailPanel"),
+    detailContent: document.getElementById("siteDetailContent"),
+    detailCloseButton: document.getElementById("siteDetailCloseButton")
   };
 
   const map = Lab.createBaseMap("map", { center: [52.15, -3.85], zoom: 7 });
@@ -84,7 +88,7 @@
     bindEvents();
     loadVisibleSites(false);
     renderSites(false);
-    setStatus("Ready. Move the map or load visible sites, then fetch rich risk data for those sample points only.");
+    setStatus("Ready. Load visible sites, fetch risk, then tap any site for the maximum feature detail sheet.");
   }
 
   function bindEvents() {
@@ -95,6 +99,7 @@
 
     els.fetchRiskButton.addEventListener("click", fetchRisk);
     els.siteSearch.addEventListener("change", findSite);
+    els.detailCloseButton?.addEventListener("click", closeDetailPanel);
 
     map.on("moveend", () => {
       loadVisibleSites(false);
@@ -126,28 +131,23 @@
 
     state.visibleSites.forEach(site => {
       const risk = state.riskBySite.get(site.id) || makeEmptyRisk(site);
+      const visual = risk.visual || makeVisualState(risk);
 
-      if (includeRisk && risk.level !== "none") {
+      if (includeRisk && visual.state !== "normal" && visual.state !== "unloaded") {
         L.circle([site.lat, site.lon], {
-          radius: Lab.riskRadius(risk.level),
+          radius: visualRadius(visual.state, risk.score),
           stroke: false,
-          fillColor: Lab.riskColor(risk.level),
-          fillOpacity: 0.18,
+          fillColor: visual.color,
+          fillOpacity: visual.state === "rain" ? 0.16 : 0.2,
           interactive: false
         }).addTo(state.blobLayer);
       }
 
       const marker = L.marker([site.lat, site.lon], {
-        icon: Lab.createDivIcon(`<div class="site-dot ${risk.level}"></div>`)
+        icon: Lab.createDivIcon(`<div class="site-dot wx-${visual.state} risk-score-${risk.score || 0}">${visual.icon}</div>`, [32, 32], [16, 16])
       }).addTo(state.siteLayer);
 
-      marker.bindPopup(renderPopup(site, risk), {
-        maxWidth: 360,
-        minWidth: 292,
-        autoPan: true,
-        autoPanPadding: [18, 128]
-      });
-      marker.on("click", () => setStatus(`${site.name}: ${risk.summary}. ${risk.detail}`));
+      marker.on("click", () => openSiteDetail(site, risk));
       state.markerBySite.set(site.id, marker);
 
       if (showLabels) {
@@ -169,7 +169,7 @@
     els.fetchRiskButton.disabled = true;
     els.fetchRiskButton.textContent = "Fetchingâ¦";
     els.riskList.innerHTML = "";
-    setStatus(`Fetching max-detail weather for ${state.visibleSites.length} visible sample site(s)â¦`);
+    setStatus(`Fetching maximum-feature weather for ${state.visibleSites.length} visible sample site(s)â¦`);
 
     try {
       const batches = Lab.chunk(state.visibleSites, MAX_SITES_PER_BATCH);
@@ -186,7 +186,12 @@
       renderRiskList(risks);
 
       const topRisk = [...risks].sort((a, b) => b.score - a.score)[0];
-      setStatus(topRisk ? `Highest visible risk: ${topRisk.label} at ${topRisk.site.name}. Tap any site for the full feature popup.` : "No risk values returned.");
+      setStatus(topRisk ? `Highest visible risk: ${topRisk.label} at ${topRisk.site.name}. Tap any site for the full feature sheet.` : "No risk values returned.");
+
+      if (state.selectedSiteId) {
+        const selected = risks.find(risk => risk.site.id === state.selectedSiteId);
+        if (selected) openSiteDetail(selected.site, selected, false);
+      }
     } catch (error) {
       setStatus(`Open-Meteo failed: ${error.message}`);
     } finally {
@@ -219,14 +224,9 @@
 
     const current = row.current;
     const hourlyRows = makeHourlyRows(row).slice(0, 24);
+    const currentHour = hourlyRows[0] || {};
     const next12 = hourlyRows.slice(0, HOURS_TO_SHOW);
-    const maxNextGust = maxFrom(next12, "gust");
-    const maxNextWind = maxFrom(next12, "wind");
-    const maxNextRain = maxFrom(next12, "rain");
-    const maxNextPrecip = maxFrom(next12, "precipitation");
-    const maxNextPrecipProb = maxFrom(next12, "precipitationProbability");
-    const minNextVisibility = minPositiveFrom(next12, "visibilityKm");
-    const thunderNext = next12.some(hour => isThunderCode(hour.weatherCode));
+    const next24 = hourlyRows.slice(0, 24);
 
     const values = {
       temperature: number(current.temperature_2m),
@@ -244,55 +244,91 @@
       windDirection: number(current.wind_direction_10m),
       gust: number(current.wind_gusts_10m),
       weatherCode: number(current.weather_code),
-      thunder: isThunderCode(number(current.weather_code)) || thunderNext,
-      maxNextGust,
-      maxNextWind,
-      maxNextRain,
-      maxNextPrecip,
-      maxNextPrecipProb,
-      minNextVisibility
+      currentTime: current.time || "",
+      dewPoint: number(currentHour.dewPoint),
+      currentVisibility: number(currentHour.visibilityKm),
+      currentCloudLow: number(currentHour.cloudLow),
+      currentCloudMid: number(currentHour.cloudMid),
+      currentCloudHigh: number(currentHour.cloudHigh),
+      currentPrecipProbability: number(currentHour.precipitationProbability),
+      maxNextGust: maxFrom(next12, "gust"),
+      maxNextWind: maxFrom(next12, "wind"),
+      maxNextRain: maxFrom(next12, "rain"),
+      maxNextPrecip: maxFrom(next12, "precipitation"),
+      maxNextShowers: maxFrom(next12, "showers"),
+      maxNextSnow: maxFrom(next12, "snowfall"),
+      maxNextSnowDepth: maxFrom(next12, "snowDepth"),
+      maxNextPrecipProb: maxFrom(next12, "precipitationProbability"),
+      maxNextCloud: maxFrom(next12, "cloud"),
+      maxNextCloudLow: maxFrom(next12, "cloudLow"),
+      maxNextCloudMid: maxFrom(next12, "cloudMid"),
+      maxNextCloudHigh: maxFrom(next12, "cloudHigh"),
+      minNextVisibility: minPositiveFrom(next12, "visibilityKm"),
+      minNextTemperature: minFrom(next12, "temperature"),
+      maxNextTemperature: maxFrom(next12, "temperature"),
+      minNextFeels: minFrom(next12, "apparentTemperature"),
+      maxNextFeels: maxFrom(next12, "apparentTemperature"),
+      pressureTrend: pressureTrend(next12),
+      wetHours12: countWhere(next12, hour => number(hour.rain) > 0 || number(hour.precipitation) > 0),
+      highGustHours12: countWhere(next12, hour => number(hour.gust) >= 30),
+      lowVisibilityHours12: countWhere(next12, hour => number(hour.visibilityKm) > 0 && number(hour.visibilityKm) <= 3),
+      thunderHours12: countWhere(next12, hour => isThunderCode(hour.weatherCode)),
+      thunderCurrent: isThunderCode(number(current.weather_code)),
+      thunderNext: next12.some(hour => isThunderCode(hour.weatherCode)),
+      sourceModelTime: row.current?.time || "",
+      elevation: number(row.elevation),
+      generationTimeMs: number(row.generationtime_ms),
+      timezone: row.timezone || "Europe/London",
+      utcOffsetSeconds: number(row.utc_offset_seconds)
     };
 
-    const score = Math.max(
-      values.gust >= 55 || maxNextGust >= 55 ? 4 : values.gust >= 42 || maxNextGust >= 42 ? 3 : values.gust >= 30 || maxNextGust >= 30 ? 2 : values.gust >= 22 || maxNextGust >= 22 ? 1 : 0,
-      values.wind >= 42 || maxNextWind >= 42 ? 3 : values.wind >= 30 || maxNextWind >= 30 ? 2 : values.wind >= 22 || maxNextWind >= 22 ? 1 : 0,
-      values.rain >= 8 || maxNextRain >= 8 || maxNextPrecip >= 8 ? 4 : values.rain >= 4 || maxNextRain >= 4 || maxNextPrecip >= 4 ? 3 : values.rain >= 1.5 || maxNextRain >= 1.5 || maxNextPrecip >= 1.5 ? 2 : values.rain > 0 || maxNextRain > 0 || maxNextPrecip > 0 ? 1 : 0,
-      values.showers >= 4 ? 3 : values.showers >= 1 ? 2 : 0,
-      values.snow > 0 ? 3 : 0,
-      values.thunder ? 4 : 0,
-      minNextVisibility > 0 && minNextVisibility <= 1 ? 3 : minNextVisibility > 0 && minNextVisibility <= 3 ? 2 : 0
-    );
+    values.thunder = values.thunderCurrent || values.thunderNext;
 
-    const level = score >= 4 ? "severe" : score === 3 ? "high" : score === 2 ? "moderate" : score === 1 ? "low" : "none";
-    const label = score >= 4 ? "Severe" : score === 3 ? "High" : score === 2 ? "Moderate" : score === 1 ? "Low" : "Clear";
-    const detail = `gust ${fmt(values.gust)} mph now / ${fmt(maxNextGust)} mph max, rain ${fmt(values.rain)} mm/h now, ${fmt(maxNextPrecipProb, 0)}% precip chance.`;
+    const currentRisk = scoreCurrent(values);
+    const nextRisk = scoreNext(values);
+    const score = Math.max(currentRisk.score, nextRisk.score);
+    const level = riskLevel(score);
+    const label = riskLabel(score);
+    const reasons = [...currentRisk.reasons, ...nextRisk.reasons].filter(Boolean);
+    const topReason = reasons[0] || "No obvious severe trigger from the fetched values.";
 
-    return {
+    const risk = {
       site,
       row,
       level,
       label,
       score,
-      summary: `${label} weather risk`,
-      detail,
+      currentRisk,
+      nextRisk,
+      summary: `Current ${currentRisk.label} Â· Next 12h ${nextRisk.label}`,
+      detail: topReason,
       values,
+      visual: null,
       hourlyRows,
       next12,
+      next24,
       fetchedAt: new Date()
     };
+
+    risk.visual = makeVisualState(risk);
+    return risk;
   }
 
   function makeEmptyRisk(site) {
     return {
       site,
-      level: "none",
+      level: "unloaded",
       label: "Not loaded",
       score: 0,
+      currentRisk: { score: 0, label: "Not loaded", reasons: [] },
+      nextRisk: { score: 0, label: "Not loaded", reasons: [] },
       summary: "Site weather not loaded",
       detail: "Tap Fetch risk to request live values.",
       values: {},
+      visual: { state: "unloaded", label: "Not loaded", icon: "", color: "#607080" },
       hourlyRows: [],
-      next12: []
+      next12: [],
+      next24: []
     };
   }
 
@@ -329,8 +365,144 @@
     })).filter(hour => !currentTime || hour.timestamp >= currentTime);
   }
 
+  function scoreCurrent(values) {
+    const checks = [
+      gustRisk(values.gust, "current gust"),
+      windRisk(values.wind, "current wind"),
+      rainRisk(values.rain, "current rain"),
+      showersRisk(values.showers, "current showers"),
+      snowRisk(values.snow, "current snow"),
+      visibilityRisk(values.currentVisibility, "current visibility"),
+      thunderRisk(values.thunderCurrent, "current thunderstorm code")
+    ].filter(Boolean);
+
+    return scoreFromChecks(checks);
+  }
+
+  function scoreNext(values) {
+    const checks = [
+      gustRisk(values.maxNextGust, "next 12h gust"),
+      windRisk(values.maxNextWind, "next 12h wind"),
+      rainRisk(Math.max(values.maxNextRain, values.maxNextPrecip), "next 12h rain/precip"),
+      showersRisk(values.maxNextShowers, "next 12h showers"),
+      snowRisk(Math.max(values.maxNextSnow, values.maxNextSnowDepth), "next 12h snow/ice"),
+      visibilityRisk(values.minNextVisibility, "next 12h visibility"),
+      thunderRisk(values.thunderNext, "next 12h thunderstorm code"),
+      precipProbabilityRisk(values.maxNextPrecipProb, values.wetHours12)
+    ].filter(Boolean);
+
+    return scoreFromChecks(checks);
+  }
+
+  function scoreFromChecks(checks) {
+    const score = checks.reduce((highest, check) => Math.max(highest, check.score), 0);
+    const reasons = checks
+      .sort((a, b) => b.score - a.score)
+      .map(check => check.reason);
+
+    return { score, label: riskLabel(score), level: riskLevel(score), reasons };
+  }
+
+  function gustRisk(value, label) {
+    const gust = number(value);
+    if (gust >= 55) return { score: 4, reason: `${label}: ${fmt(gust)} mph. Severe exposure risk.` };
+    if (gust >= 42) return { score: 3, reason: `${label}: ${fmt(gust)} mph. High gust risk.` };
+    if (gust >= 30) return { score: 2, reason: `${label}: ${fmt(gust)} mph. Watch for exposed sites.` };
+    if (gust >= 22) return { score: 1, reason: `${label}: ${fmt(gust)} mph. Breezy.` };
+    return null;
+  }
+
+  function windRisk(value, label) {
+    const wind = number(value);
+    if (wind >= 42) return { score: 3, reason: `${label}: ${fmt(wind)} mph sustained wind.` };
+    if (wind >= 30) return { score: 2, reason: `${label}: ${fmt(wind)} mph sustained wind.` };
+    if (wind >= 22) return { score: 1, reason: `${label}: ${fmt(wind)} mph sustained wind.` };
+    return null;
+  }
+
+  function rainRisk(value, label) {
+    const rain = number(value);
+    if (rain >= 8) return { score: 4, reason: `${label}: ${fmt(rain)} mm/h. Very heavy rain.` };
+    if (rain >= 4) return { score: 3, reason: `${label}: ${fmt(rain)} mm/h. Heavy rain.` };
+    if (rain >= 1.5) return { score: 2, reason: `${label}: ${fmt(rain)} mm/h. Moderate rain.` };
+    if (rain > 0) return { score: 1, reason: `${label}: ${fmt(rain)} mm/h. Light rain.` };
+    return null;
+  }
+
+  function showersRisk(value, label) {
+    const showers = number(value);
+    if (showers >= 4) return { score: 3, reason: `${label}: ${fmt(showers)} mm. Heavy showers.` };
+    if (showers >= 1) return { score: 2, reason: `${label}: ${fmt(showers)} mm. Showers likely.` };
+    if (showers > 0) return { score: 1, reason: `${label}: ${fmt(showers)} mm. Light showers.` };
+    return null;
+  }
+
+  function snowRisk(value, label) {
+    const snow = number(value);
+    if (snow > 0) return { score: 3, reason: `${label}: ${fmt(snow)}. Snow/ice flag.` };
+    return null;
+  }
+
+  function visibilityRisk(value, label) {
+    const visibility = number(value);
+    if (!visibility) return null;
+    if (visibility <= 0.5) return { score: 4, reason: `${label}: ${fmt(visibility, 1)} km. Very poor visibility.` };
+    if (visibility <= 1) return { score: 3, reason: `${label}: ${fmt(visibility, 1)} km. Poor visibility.` };
+    if (visibility <= 3) return { score: 2, reason: `${label}: ${fmt(visibility, 1)} km. Reduced visibility.` };
+    return null;
+  }
+
+  function thunderRisk(isThunder, label) {
+    return isThunder ? { score: 4, reason: `${label}: thunderstorm weather code present. Treat as lightning-risk proxy only.` } : null;
+  }
+
+  function precipProbabilityRisk(probability, wetHours) {
+    const probabilityValue = number(probability);
+    const wetHourCount = number(wetHours);
+    if (probabilityValue >= 90 && wetHourCount >= 3) return { score: 2, reason: `next 12h precip chance: ${fmt(probabilityValue, 0)}% across ${wetHourCount} wet hour(s).` };
+    if (probabilityValue >= 60 && wetHourCount >= 1) return { score: 1, reason: `next 12h precip chance: ${fmt(probabilityValue, 0)}%.` };
+    return null;
+  }
+
+  function riskLabel(score) {
+    return score >= 4 ? "Severe" : score === 3 ? "High" : score === 2 ? "Moderate" : score === 1 ? "Low" : "Clear";
+  }
+
+  function riskLevel(score) {
+    return score >= 4 ? "severe" : score === 3 ? "high" : score === 2 ? "moderate" : score === 1 ? "low" : "none";
+  }
+
+  function makeVisualState(risk) {
+    const values = risk.values || {};
+
+    if (!risk.values || risk.level === "unloaded") {
+      return { state: "unloaded", label: "Not loaded", icon: "", color: "#607080" };
+    }
+
+    if (values.thunder || risk.score >= 4 && (values.thunderCurrent || values.thunderNext)) {
+      return { state: "lightning", label: "Lightning / thunder", icon: "â¡", color: "#ff3131" };
+    }
+
+    if ((values.maxNextGust || values.gust || 0) >= 36 || (values.maxNextWind || values.wind || 0) >= 30) {
+      return { state: "storm", label: "Storm / wind", icon: "â", color: "#ff8a1f" };
+    }
+
+    if ((values.rain || 0) > 0 || (values.maxNextRain || 0) > 0 || (values.maxNextPrecip || 0) > 0 || (values.maxNextPrecipProb || 0) >= 50) {
+      return { state: "rain", label: "Rain", icon: "", color: "#22d9ff" };
+    }
+
+    return { state: "normal", label: values.isDay ? "Normal / sunny" : "Normal / night", icon: "", color: "#f6d55c" };
+  }
+
+  function visualRadius(stateName, score) {
+    if (stateName === "lightning") return 36000;
+    if (stateName === "storm") return 30000;
+    if (stateName === "rain") return score >= 3 ? 24000 : 18000;
+    return 11000;
+  }
+
   function renderRiskList(risks) {
-    const sorted = [...risks].sort((a, b) => b.score - a.score).slice(0, 12);
+    const sorted = [...risks].sort((a, b) => b.score - a.score || b.nextRisk.score - a.nextRisk.score).slice(0, 14);
 
     if (!sorted.length) {
       els.riskList.innerHTML = `<div class="result-card"><span>No risk data returned.</span></div>`;
@@ -338,10 +510,10 @@
     }
 
     els.riskList.innerHTML = sorted.map(risk => `
-      <article class="result-card">
-        <strong>${Lab.escapeHtml(risk.site.name)} Â· ${risk.label}</strong>
-        <span>${Lab.escapeHtml(risk.site.region)} Â· ${Lab.escapeHtml(risk.detail)}</span>
-        <button type="button" data-flyto="${Lab.escapeHtml(risk.site.id)}">View details</button>
+      <article class="result-card compact-risk-card wx-${Lab.escapeHtml(risk.visual.state)}">
+        <strong>${Lab.escapeHtml(risk.site.name)} Â· ${Lab.escapeHtml(risk.visual.label)}</strong>
+        <span>${Lab.escapeHtml(risk.summary)} Â· ${Lab.escapeHtml(risk.detail)}</span>
+        <button type="button" data-flyto="${Lab.escapeHtml(risk.site.id)}">Open full feature sheet</button>
       </article>
     `).join("");
 
@@ -350,69 +522,184 @@
     });
   }
 
-  function renderPopup(site, risk) {
+  function openSiteDetail(site, risk, panMap = true) {
+    state.selectedSiteId = site.id;
+    if (panMap) map.panTo([site.lat, site.lon], { animate: true, duration: 0.25 });
+
+    const chosenRisk = state.riskBySite.get(site.id) || risk || makeEmptyRisk(site);
+    setStatus(`${site.name}: ${chosenRisk.summary}. ${chosenRisk.detail}`);
+
+    if (els.detailContent && els.detailPanel) {
+      els.detailContent.innerHTML = renderDetailSheet(site, chosenRisk);
+      els.detailPanel.hidden = false;
+    }
+  }
+
+  function closeDetailPanel() {
+    if (els.detailPanel) els.detailPanel.hidden = true;
+  }
+
+  function renderDetailSheet(site, risk) {
     const values = risk.values || {};
-    const detailRows = [
-      metric("Risk", risk.label || "Not loaded", `Score ${risk.score ?? 0}`),
-      metric("Gust now", mph(values.gust), `Max ${mph(values.maxNextGust)}`),
-      metric("Wind", mph(values.wind), `${compass(values.windDirection)} ${fmt(values.windDirection, 0)}Â°`),
-      metric("Rain", `${fmt(values.rain)} mm/h`, `Max ${fmt(values.maxNextRain)} mm/h`),
-      metric("Precip", `${fmt(values.precipitation)} mm`, `${fmt(values.maxNextPrecipProb, 0)}% chance`),
-      metric("Showers", `${fmt(values.showers)} mm`, "current"),
-      metric("Snow", `${fmt(values.snow)} cm`, "current"),
-      metric("Visibility", km(values.minNextVisibility), "min next 12h"),
-      metric("Cloud", percent(values.cloud), "total"),
-      metric("Temp", celsius(values.temperature), `Feels ${celsius(values.apparentTemperature)}`),
-      metric("Humidity", percent(values.humidity), "current"),
-      metric("Pressure", hpa(values.pressureMsl), `Surface ${hpa(values.surfacePressure)}`)
+    const visual = risk.visual || makeVisualState(risk);
+    const sourceRows = sourceFacts(risk).map(item => metric(item.label, item.value, item.hint)).join("");
+    const decisionRows = [
+      metric("Display state", visual.label, "highest-priority visible state"),
+      metric("Current risk", risk.currentRisk?.label || "â", `score ${risk.currentRisk?.score ?? 0}`),
+      metric("Next 12h", risk.nextRisk?.label || "â", `score ${risk.nextRisk?.score ?? 0}`),
+      metric("Top reason", risk.detail || "â", "why it was flagged")
     ].join("");
 
-    const hourly = (risk.next12 || []).slice(0, 6).map(hour => `
-      <article class="popup-hour-card">
-        <strong>${hourLabel(hour.time)}</strong>
-        <span>${weatherIcon(hour.weatherCode)}</span>
-        <b>${mph(hour.gust)}</b>
-        <small>${fmt(hour.precipitationProbability, 0)}% Â· ${fmt(hour.rain || hour.precipitation)} mm</small>
-      </article>
-    `).join("") || `<article class="popup-hour-card"><strong>â</strong><small>Fetch risk first</small></article>`;
+    const windRows = [
+      metric("Gust now", mph(values.gust), `max ${mph(values.maxNextGust)}`),
+      metric("Wind now", mph(values.wind), `${compass(values.windDirection)} ${fmt(values.windDirection, 0)}Â°`),
+      metric("Max wind", mph(values.maxNextWind), "next 12h"),
+      metric("Gust hours", String(values.highGustHours12 || 0), ">=30 mph next 12h")
+    ].join("");
 
-    const checks = makeChecks(risk).map(item => `<li>${Lab.escapeHtml(item)}</li>`).join("");
+    const rainRows = [
+      metric("Rain now", `${fmt(values.rain)} mm/h`, `max ${fmt(values.maxNextRain)} mm/h`),
+      metric("Precip now", `${fmt(values.precipitation)} mm`, `max ${fmt(values.maxNextPrecip)} mm`),
+      metric("Precip chance", `${fmt(values.maxNextPrecipProb, 0)}%`, "max next 12h"),
+      metric("Wet hours", String(values.wetHours12 || 0), "next 12h"),
+      metric("Showers", `${fmt(values.showers)} mm`, `max ${fmt(values.maxNextShowers)} mm`),
+      metric("Snow", `${fmt(values.snow)} cm`, `depth max ${fmt(values.maxNextSnowDepth)} cm`)
+    ].join("");
+
+    const visibilityRows = [
+      metric("Visibility now", km(values.currentVisibility), `min ${km(values.minNextVisibility)}`),
+      metric("Low-vis hours", String(values.lowVisibilityHours12 || 0), "<=3 km next 12h"),
+      metric("Cloud now", percent(values.cloud), `max ${percent(values.maxNextCloud)}`),
+      metric("Low cloud", percent(values.currentCloudLow), `max ${percent(values.maxNextCloudLow)}`),
+      metric("Mid cloud", percent(values.currentCloudMid), `max ${percent(values.maxNextCloudMid)}`),
+      metric("High cloud", percent(values.currentCloudHigh), `max ${percent(values.maxNextCloudHigh)}`)
+    ].join("");
+
+    const airRows = [
+      metric("Temp", celsius(values.temperature), `${celsius(values.minNextTemperature)} to ${celsius(values.maxNextTemperature)}`),
+      metric("Feels like", celsius(values.apparentTemperature), `${celsius(values.minNextFeels)} to ${celsius(values.maxNextFeels)}`),
+      metric("Dew point", celsius(values.dewPoint), "nearest hourly value"),
+      metric("Humidity", percent(values.humidity), "current"),
+      metric("MSL pressure", hpa(values.pressureMsl), `trend ${values.pressureTrend}`),
+      metric("Surface pressure", hpa(values.surfacePressure), "current")
+    ].join("");
+
+    const codeRows = [
+      metric("Weather code", String(values.weatherCode ?? "â"), weatherCodeText(values.weatherCode)),
+      metric("Day/night", values.isDay ? "Day" : "Night", "Open-Meteo is_day"),
+      metric("Thunder", values.thunder ? "Inferred" : "Not flagged", "weather code only"),
+      metric("Official warning", "Not connected", "Met Office polygon check pending")
+    ].join("");
+
+    const operationRows = makeOperationChecks(risk).map(check => `
+      <article class="operation-check severity-${check.severity}">
+        <strong>${Lab.escapeHtml(check.title)}</strong>
+        <span>${Lab.escapeHtml(check.detail)}</span>
+      </article>
+    `).join("");
+
+    const hourCards = (risk.next12 || []).map(hour => renderHourCard(hour)).join("") || `<article class="popup-hour-card"><strong>â</strong><small>Fetch risk first</small></article>`;
+    const rawRows = renderRawDebug(risk);
 
     return `
-      <section class="site-weather-popup risk-${Lab.escapeHtml(risk.level || "none")}">
-        <header class="site-popup-header">
-          <div>
-            <p class="eyebrow">${Lab.escapeHtml(site.id)} Â· ${Lab.escapeHtml(site.region)}</p>
-            <h3>${Lab.escapeHtml(site.name)}</h3>
+      <div class="site-detail-hero wx-${Lab.escapeHtml(visual.state)}">
+        <div>
+          <p class="eyebrow">${Lab.escapeHtml(site.id)} Â· ${Lab.escapeHtml(site.region)}</p>
+          <h2>${Lab.escapeHtml(site.name)}</h2>
+          <div class="site-popup-meta">
+            <span>${fmt(site.lat, 4)}, ${fmt(site.lon, 4)}</span>
+            <span>${risk.fetchedAt ? `Fetched ${risk.fetchedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}` : "Not fetched"}</span>
           </div>
-          <span class="risk-badge">${Lab.escapeHtml(risk.label || "Not loaded")}</span>
-        </header>
-
-        <div class="site-popup-meta">
-          <span>${fmt(site.lat, 4)}, ${fmt(site.lon, 4)}</span>
-          <span>${risk.fetchedAt ? `Fetched ${risk.fetchedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}` : "Not fetched"}</span>
         </div>
+        <div class="detail-state-badge">${Lab.escapeHtml(visual.label)}</div>
+      </div>
 
-        <div class="popup-hazard-strip">
-          <strong>${Lab.escapeHtml(risk.summary)}</strong>
-          <span>${Lab.escapeHtml(risk.detail)}</span>
-        </div>
+      <div class="popup-hazard-strip risk-${Lab.escapeHtml(risk.level || "none")}">
+        <strong>${Lab.escapeHtml(risk.summary)}</strong>
+        <span>${Lab.escapeHtml(risk.detail)}</span>
+      </div>
 
-        <div class="popup-metric-grid">${detailRows}</div>
-
-        <section class="popup-section">
-          <h4>Next 12h quick scan</h4>
-          <div class="popup-hour-strip">${hourly}</div>
-        </section>
-
-        <section class="popup-section">
-          <h4>Signal / access checks</h4>
-          <ul class="popup-check-list">${checks}</ul>
-        </section>
-
-        <p class="popup-footnote">Thunder is inferred from weather code only in this test. This is a feature dump so we can remove what is not useful.</p>
+      <section class="detail-section">
+        <h3>Decision / display</h3>
+        <div class="popup-metric-grid four">${decisionRows}</div>
       </section>
+
+      <section class="detail-section">
+        <h3>Wind / exposure</h3>
+        <div class="popup-metric-grid four">${windRows}</div>
+      </section>
+
+      <section class="detail-section">
+        <h3>Rain / precipitation / snow</h3>
+        <div class="popup-metric-grid four">${rainRows}</div>
+      </section>
+
+      <section class="detail-section">
+        <h3>Visibility / cloud</h3>
+        <div class="popup-metric-grid four">${visibilityRows}</div>
+      </section>
+
+      <section class="detail-section">
+        <h3>Temperature / air</h3>
+        <div class="popup-metric-grid four">${airRows}</div>
+      </section>
+
+      <section class="detail-section">
+        <h3>Code / warnings</h3>
+        <div class="popup-metric-grid four">${codeRows}</div>
+      </section>
+
+      <section class="detail-section">
+        <h3>Operational checks</h3>
+        <div class="operation-grid">${operationRows}</div>
+      </section>
+
+      <section class="detail-section">
+        <h3>Next 12h feature scan</h3>
+        <div class="hour-table">${hourCards}</div>
+      </section>
+
+      <section class="detail-section">
+        <h3>Source / metadata</h3>
+        <div class="popup-metric-grid four">${sourceRows}</div>
+      </section>
+
+      <details class="raw-details">
+        <summary>Raw/debug values requested</summary>
+        <div class="raw-debug-grid">${rawRows}</div>
+      </details>
+
+      <p class="popup-footnote">This is deliberately overloaded. It uses Open-Meteo forecast/current fields only. Lightning is inferred from WMO weather codes; official Met Office warnings are not linked yet.</p>
     `;
+  }
+
+  function renderHourCard(hour) {
+    const score = scoreFromChecks([
+      gustRisk(hour.gust, "gust"),
+      windRisk(hour.wind, "wind"),
+      rainRisk(Math.max(number(hour.rain), number(hour.precipitation)), "rain"),
+      showersRisk(hour.showers, "showers"),
+      snowRisk(Math.max(number(hour.snowfall), number(hour.snowDepth)), "snow"),
+      visibilityRisk(hour.visibilityKm, "visibility"),
+      thunderRisk(isThunderCode(hour.weatherCode), "thunder")
+    ].filter(Boolean));
+
+    return `
+      <article class="hour-feature-card risk-${score.level}">
+        <strong>${hourLabel(hour.time)}</strong>
+        <span class="hour-icon">${weatherIcon(hour.weatherCode)}</span>
+        <small>${weatherCodeText(hour.weatherCode)}</small>
+        <b>${score.label}</b>
+        <span>Temp ${celsius(hour.temperature)} / feels ${celsius(hour.apparentTemperature)}</span>
+        <span>Wind ${mph(hour.wind)} Â· gust ${mph(hour.gust)}</span>
+        <span>Rain ${fmt(hour.rain || hour.precipitation)} mm Â· ${fmt(hour.precipitationProbability, 0)}%</span>
+        <span>Vis ${km(hour.visibilityKm)} Â· cloud ${percent(hour.cloud)}</span>
+      </article>
+    `;
+  }
+
+  function renderRiskListSummaryValue(risk) {
+    return `${risk.visual.label} Â· ${risk.summary}`;
   }
 
   function metric(label, value, hint) {
@@ -425,18 +712,101 @@
     `;
   }
 
-  function makeChecks(risk) {
+  function makeOperationChecks(risk) {
     const values = risk.values || {};
     const checks = [];
 
-    if ((values.maxNextGust || values.gust || 0) >= 42) checks.push("High gusts: exposed ladders, dishes and hilltop access need caution.");
-    if ((values.maxNextRain || values.rain || 0) >= 4) checks.push("Heavy rain: check feeder/water ingress risk and track conditions.");
-    if (values.thunder) checks.push("Lightning flag: avoid exposed structures and mast work.");
-    if ((values.minNextVisibility || 99) <= 3) checks.push("Poor visibility: access roads and hill sites may be harder to work safely.");
-    if ((values.cloud || 0) >= 90) checks.push("Full cloud cover: useful for general situational awareness, not a fault by itself.");
-    if (!checks.length) checks.push("No obvious severe trigger from the fetched values.");
+    checks.push(checkItem(
+      "Mast / exposed work",
+      (values.thunder ? 4 : 0) || ((values.maxNextGust || values.gust || 0) >= 42 ? 3 : (values.maxNextGust || values.gust || 0) >= 30 ? 2 : 1),
+      values.thunder ? "Thunderstorm code present: do not treat as safe for exposed structures." : `Peak gust ${mph(values.maxNextGust || values.gust)}.`
+    ));
+
+    checks.push(checkItem(
+      "Track / access",
+      Math.max((values.minNextVisibility || values.currentVisibility || 99) <= 1 ? 3 : (values.minNextVisibility || values.currentVisibility || 99) <= 3 ? 2 : 1, (values.maxNextRain || 0) >= 4 ? 3 : (values.maxNextRain || 0) > 0 ? 1 : 0),
+      `Visibility min ${km(values.minNextVisibility || values.currentVisibility)}, rain max ${fmt(values.maxNextRain)} mm/h.`
+    ));
+
+    checks.push(checkItem(
+      "RF / water ingress watch",
+      (values.maxNextRain || values.rain || 0) >= 4 ? 3 : (values.wetHours12 || 0) >= 3 ? 2 : (values.wetHours12 || 0) > 0 ? 1 : 0,
+      `${values.wetHours12 || 0} wet hour(s) next 12h, max precip ${fmt(values.maxNextPrecip)} mm.`
+    ));
+
+    checks.push(checkItem(
+      "Signal fade / path watch",
+      Math.max((values.maxNextRain || 0) >= 4 ? 2 : (values.maxNextRain || 0) > 0 ? 1 : 0, (values.maxNextCloud || values.cloud || 0) >= 95 ? 1 : 0),
+      `Rain max ${fmt(values.maxNextRain)} mm/h, cloud max ${percent(values.maxNextCloud)}.`
+    ));
+
+    checks.push(checkItem(
+      "Ice / snow",
+      (values.maxNextSnow || values.maxNextSnowDepth || values.snow || 0) > 0 ? 3 : 0,
+      `Snow ${fmt(values.snow)} now, max depth ${fmt(values.maxNextSnowDepth)} cm.`
+    ));
+
+    checks.push(checkItem(
+      "Official warnings",
+      0,
+      "Not checked yet. Needs Met Office warning polygon layer."
+    ));
 
     return checks;
+  }
+
+  function checkItem(title, score, detail) {
+    return { title, detail, severity: score >= 4 ? "severe" : score === 3 ? "high" : score === 2 ? "moderate" : score === 1 ? "low" : "none" };
+  }
+
+  function sourceFacts(risk) {
+    const values = risk.values || {};
+    const row = risk.row || {};
+    return [
+      { label: "Source", value: "Open-Meteo", hint: "no key test API" },
+      { label: "Model time", value: values.sourceModelTime || "â", hint: "current.time" },
+      { label: "Timezone", value: values.timezone || "â", hint: `${values.utcOffsetSeconds || 0}s offset` },
+      { label: "Elevation", value: values.elevation ? `${fmt(values.elevation, 0)} m` : "â", hint: "provider value" },
+      { label: "Generated", value: values.generationTimeMs ? `${fmt(values.generationTimeMs, 1)} ms` : "â", hint: "generationtime_ms" },
+      { label: "Current units", value: Object.keys(row.current_units || {}).length ? "present" : "â", hint: "from response" },
+      { label: "Hourly rows", value: String((risk.hourlyRows || []).length), hint: "from now onward" },
+      { label: "Requested", value: `${CURRENT_FIELDS.length}+${HOURLY_FIELDS.length}`, hint: "current + hourly fields" }
+    ];
+  }
+
+  function renderRawDebug(risk) {
+    const values = risk.values || {};
+    const entries = [
+      ["weather_code", values.weatherCode],
+      ["visual_state", risk.visual?.state],
+      ["current_score", risk.currentRisk?.score],
+      ["next12_score", risk.nextRisk?.score],
+      ["temperature_2m", values.temperature],
+      ["apparent_temperature", values.apparentTemperature],
+      ["relative_humidity_2m", values.humidity],
+      ["dew_point_2m", values.dewPoint],
+      ["wind_speed_10m", values.wind],
+      ["wind_gusts_10m", values.gust],
+      ["wind_direction_10m", values.windDirection],
+      ["rain", values.rain],
+      ["showers", values.showers],
+      ["snowfall", values.snow],
+      ["precipitation", values.precipitation],
+      ["precip_probability_current_hour", values.currentPrecipProbability],
+      ["visibility_current_hour_km", values.currentVisibility],
+      ["min_visibility_next12_km", values.minNextVisibility],
+      ["cloud_cover", values.cloud],
+      ["cloud_low_current", values.currentCloudLow],
+      ["cloud_mid_current", values.currentCloudMid],
+      ["cloud_high_current", values.currentCloudHigh],
+      ["pressure_msl", values.pressureMsl],
+      ["surface_pressure", values.surfacePressure],
+      ["thunder_inferred", values.thunder]
+    ];
+
+    return entries.map(([key, value]) => `
+      <div><code>${Lab.escapeHtml(key)}</code><span>${Lab.escapeHtml(String(value ?? "â"))}</span></div>
+    `).join("");
   }
 
   function findSite() {
@@ -453,17 +823,21 @@
     }
 
     map.setView([found.lat, found.lon], 10);
+    loadVisibleSites(false);
+    renderSites(true);
     setStatus(`${found.name} selected. Fetch risk again if you want fresh visible-site values.`);
   }
 
-  function flyToSite(siteId, openPopup = false) {
-    const site = state.visibleSites.find(candidate => candidate.id === siteId);
+  function flyToSite(siteId, openPanel = false) {
+    const site = Lab.allSites(state.regions).find(candidate => candidate.id === siteId);
     if (!site) return;
     map.setView([site.lat, site.lon], Math.max(map.getZoom(), 10));
-    if (openPopup) {
+    loadVisibleSites(false);
+    renderSites(true);
+    if (openPanel) {
       window.setTimeout(() => {
-        const marker = state.markerBySite.get(site.id);
-        if (marker) marker.openPopup();
+        const latestSite = state.visibleSites.find(candidate => candidate.id === site.id) || site;
+        openSiteDetail(latestSite, state.riskBySite.get(site.id) || makeEmptyRisk(site), false);
       }, 260);
     }
   }
@@ -481,9 +855,27 @@
     return rows.reduce((max, row) => Math.max(max, number(row[key])), 0);
   }
 
+  function minFrom(rows, key) {
+    const values = rows.map(row => number(row[key])).filter(value => Number.isFinite(value));
+    return values.length ? Math.min(...values) : 0;
+  }
+
   function minPositiveFrom(rows, key) {
     const values = rows.map(row => number(row[key])).filter(value => value > 0);
     return values.length ? Math.min(...values) : 0;
+  }
+
+  function countWhere(rows, predicate) {
+    return rows.filter(predicate).length;
+  }
+
+  function pressureTrend(rows) {
+    const first = rows.find(row => row.pressureMsl)?.pressureMsl;
+    const last = [...rows].reverse().find(row => row.pressureMsl)?.pressureMsl;
+    if (!first || !last) return "â";
+    const diff = last - first;
+    if (Math.abs(diff) < 1) return "steady";
+    return diff > 0 ? `rising ${fmt(diff)} hPa` : `falling ${fmt(Math.abs(diff))} hPa`;
   }
 
   function fmt(value, places = 1) {
@@ -534,5 +926,40 @@
     if ([45, 48].includes(value)) return "ð«";
     if ([1, 2, 3].includes(value)) return "â";
     return "â";
+  }
+
+  function weatherCodeText(code) {
+    const value = Number(code);
+    const labels = {
+      0: "Clear sky",
+      1: "Mainly clear",
+      2: "Partly cloudy",
+      3: "Overcast",
+      45: "Fog",
+      48: "Depositing rime fog",
+      51: "Light drizzle",
+      53: "Moderate drizzle",
+      55: "Dense drizzle",
+      56: "Light freezing drizzle",
+      57: "Dense freezing drizzle",
+      61: "Slight rain",
+      63: "Moderate rain",
+      65: "Heavy rain",
+      66: "Light freezing rain",
+      67: "Heavy freezing rain",
+      71: "Slight snow",
+      73: "Moderate snow",
+      75: "Heavy snow",
+      77: "Snow grains",
+      80: "Slight showers",
+      81: "Moderate showers",
+      82: "Violent showers",
+      85: "Slight snow showers",
+      86: "Heavy snow showers",
+      95: "Thunderstorm",
+      96: "Thunderstorm with hail",
+      99: "Severe thunderstorm with hail"
+    };
+    return labels[value] || "Unknown / not loaded";
   }
 })();
