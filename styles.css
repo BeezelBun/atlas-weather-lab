@@ -665,3 +665,4 @@ button, a, input, select {
     padding: 9px 10px;
   }
 }
+ @media (max-width: 720px) { .panel-open-button { left: 12px; bottom: calc(var(--safe-bottom) + 12px); } }
