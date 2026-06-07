@@ -2029,3 +2029,119 @@ button, a, input, select {
     display: none;
   }
 }
+
+
+/* v0.3.7: Met Office rainfall band filters. */
+.metoffice-band-filter-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(34, 217, 255, 0.22);
+  border-radius: 18px;
+  background: rgba(8, 20, 34, 0.72);
+}
+
+.metoffice-band-filter-panel[hidden] {
+  display: none;
+}
+
+.metoffice-filter-title {
+  display: grid;
+  gap: 2px;
+}
+
+.metoffice-filter-title strong {
+  color: var(--cyan);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.metoffice-filter-title span {
+  color: rgba(234, 246, 255, 0.62);
+  font-size: 10px;
+}
+
+.metoffice-band-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.metoffice-band-toggle {
+  display: grid;
+  grid-template-columns: 18px 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 5px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.metoffice-band-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--cyan);
+}
+
+.metoffice-band-toggle i {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--band-colour);
+  box-shadow: 0 0 10px var(--band-colour);
+}
+
+.metoffice-band-toggle span {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.metoffice-band-toggle b {
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.metoffice-band-toggle em {
+  color: rgba(234, 246, 255, 0.56);
+  font-size: 9px;
+  font-style: normal;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.metoffice-band-toggle small {
+  color: rgba(234, 246, 255, 0.52);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.metoffice-land-toggle {
+  grid-template-columns: 18px 14px minmax(0, 1fr) auto;
+  border-color: rgba(179, 208, 174, 0.32);
+}
+
+@media (max-width: 720px) {
+  .metoffice-frame-panel {
+    max-height: min(50vh, 470px);
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .metoffice-band-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metoffice-band-toggle {
+    padding: 5px;
+    gap: 5px;
+  }
+}
