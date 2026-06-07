@@ -1,11 +1,13 @@
-/* Met Office DataHub Map Images standalone test page v0.2.8
-   - Saves key/order locally in this browser only.
-   - Caches the order file list to avoid re-listing hundreds of files every click.
-   - Lets the user choose rainfall/cloud/pressure/temperature and a time step.
+/* Met Office DataHub Map Images full-screen preview v0.3.0
+   - Uses locally saved Map Images key/API Order ID.
+   - Caches the order file list so the order does not relist hundreds of files every view.
+   - Shows one selected PNG at a time with side layer buttons and a frame slider.
+   - Repaints rainfall images into an Atlas blue-only overlay palette.
+   - Does not commit keys or order data to GitHub.
 */
 (() => {
-  const Lab = window.AtlasWeatherLab || { escapeHtml: escapeHtmlFallback };
   const METOFFICE_MAP_IMAGES_BASE = "https://data.hub.api.metoffice.gov.uk/map-images/1.0.0";
+
   const STORAGE = {
     key: "atlasWeatherLab.metOffice.mapImages.apiKey",
     order: "atlasWeatherLab.metOffice.mapImages.orderId",
@@ -14,138 +16,200 @@
     cachePrefix: "atlasWeatherLab.metOffice.mapImages.fileCache."
   };
 
-  const LAYER_MATCHERS = {
-    rainfall: /(precip|rainfall|rain)/i,
-    cloud: /cloud/i,
-    pressure: /(pressure|mean[_-]?sea|meansea|mslp|msl)/i,
-    temperature: /(temperature|temp)/i,
-    all: /./
+  const LAYERS = {
+    rainfall: {
+      label: "Rainfall",
+      title: "Rainfall / precipitation rate",
+      matcher: /(precip|rainfall|rain)/i,
+      empty: "No rainfall image matched this order.",
+      legend: "Met Office precipitation-rate model PNG, recoloured in-browser to Atlas blue rainfall colours."
+    },
+    cloud: {
+      label: "Cloud",
+      title: "Total cloud cover",
+      matcher: /cloud/i,
+      empty: "No cloud image matched this order.",
+      legend: "Total cloud cover map image from the selected order."
+    },
+    pressure: {
+      label: "Pressure",
+      title: "Mean sea-level pressure",
+      matcher: /(pressure|mean[_-]?sea|meansea|mslp|msl)/i,
+      empty: "No pressure image matched this order.",
+      legend: "Mean sea-level pressure map image from the selected order."
+    },
+    temperature: {
+      label: "Temperature",
+      title: "Surface temperature",
+      matcher: /(temperature|temp)/i,
+      empty: "No temperature image matched this order.",
+      legend: "Temperature-at-surface map image from the selected order."
+    }
   };
 
   const els = {
+    image: document.getElementById("metOfficeImage"),
+    placeholder: document.getElementById("metOfficePlaceholder"),
+    status: document.getElementById("metOfficeStatus"),
+    legend: document.getElementById("metOfficeLegend"),
+    frameTitle: document.getElementById("metOfficeFrameTitle"),
+    frameLabel: document.getElementById("metOfficeFrameLabel"),
+    frameSlider: document.getElementById("metOfficeFrameSlider"),
+    prevFrame: document.getElementById("prevFrameButton"),
+    nextFrame: document.getElementById("nextFrameButton"),
+    layerButtons: Array.from(document.querySelectorAll(".metoffice-layer-button[data-layer]")),
+    refreshButton: document.getElementById("refreshOrderButton"),
+    forgetButton: document.getElementById("forgetLocalButton"),
+    openSettings: document.getElementById("openMetOfficeSettings"),
+    closeSettings: document.getElementById("closeMetOfficeSettings"),
+    closeSetup: document.getElementById("closeSetupButton"),
+    settingsPanel: document.getElementById("metOfficeSettingsPanel"),
     key: document.getElementById("metOfficeKey"),
     order: document.getElementById("metOfficeOrder"),
-    layer: document.getElementById("metOfficeLayer"),
-    timeStep: document.getElementById("metOfficeTimeStep"),
-    saveLocalButton: document.getElementById("saveLocalButton"),
-    forgetLocalButton: document.getElementById("forgetLocalButton"),
-    testButton: document.getElementById("testOrderButton"),
-    refreshButton: document.getElementById("refreshOrderButton"),
-    previewButton: document.getElementById("previewButton"),
-    clearButton: document.getElementById("clearButton"),
-    output: document.getElementById("metOfficeOutput"),
+    saveButton: document.getElementById("saveLocalButton"),
     storageNote: document.getElementById("metOfficeStorageNote")
   };
 
   let fileIds = [];
+  let layerFiles = [];
+  let timeSteps = [];
+  let selectedLayer = localStorage.getItem(STORAGE.layer) || "rainfall";
+  let selectedStep = localStorage.getItem(STORAGE.timeStep) || "+00";
   let selectedFileId = "";
-  let previewObjectUrl = "";
+  let imageObjectUrl = "";
+  let loadingImage = false;
 
-  restoreSavedSettings();
+  restoreInputs();
   bindEvents();
-  showSavedState();
+  setActiveLayer(selectedLayer, { preview: false });
+  updateSavedNote();
+  bootstrap();
+
+  function restoreInputs() {
+    els.key.value = localStorage.getItem(STORAGE.key) || "";
+    els.order.value = localStorage.getItem(STORAGE.order) || "maps-uk1";
+  }
 
   function bindEvents() {
-    els.saveLocalButton.addEventListener("click", () => {
-      saveSettings();
-      showSavedState("Saved locally on this device.");
+    els.layerButtons.forEach((button) => {
+      button.addEventListener("click", () => setActiveLayer(button.dataset.layer, { preview: true }));
     });
 
-    els.forgetLocalButton.addEventListener("click", () => {
-      forgetSettings();
-      showSavedState("Saved key/order removed from this browser.");
-    });
-
-    els.testButton.addEventListener("click", async () => {
-      await listOrder({ forceRefresh: false, previewAfter: true });
-    });
-
-    els.refreshButton.addEventListener("click", async () => {
-      await listOrder({ forceRefresh: true, previewAfter: false });
-    });
-
-    els.previewButton.addEventListener("click", previewSelectedFile);
-
-    els.clearButton.addEventListener("click", () => {
-      clearPreviewUrl();
-      els.output.textContent = "Output cleared. Saved key/order and cached file list were not removed.";
-    });
-
-    els.layer.addEventListener("change", () => {
-      localStorage.setItem(STORAGE.layer, els.layer.value);
-      rebuildTimeStepOptions();
-      renderFileSelectionSummary();
-    });
-
-    els.timeStep.addEventListener("change", () => {
-      localStorage.setItem(STORAGE.timeStep, els.timeStep.value);
+    els.frameSlider.addEventListener("input", () => {
+      const index = Number(els.frameSlider.value || 0);
+      selectedStep = timeSteps[index] || selectedStep;
+      localStorage.setItem(STORAGE.timeStep, selectedStep);
       chooseSelectedFile();
-      renderFileSelectionSummary();
+      updateFrameUi();
+    });
+
+    els.frameSlider.addEventListener("change", () => previewSelectedFile());
+
+    els.prevFrame.addEventListener("click", () => bumpFrame(-1));
+    els.nextFrame.addEventListener("click", () => bumpFrame(1));
+
+    els.refreshButton.addEventListener("click", () => loadOrder({ forceRefresh: true, previewAfter: true }));
+
+    els.forgetButton.addEventListener("click", () => {
+      forgetSavedKey();
+      showSettings(true);
+    });
+
+    els.openSettings.addEventListener("click", () => showSettings(true));
+    els.closeSettings.addEventListener("click", () => showSettings(false));
+    els.closeSetup.addEventListener("click", () => showSettings(false));
+
+    els.saveButton.addEventListener("click", () => {
+      saveSettings();
+      updateSavedNote("Saved locally on this device.");
+      showSettings(false);
+      loadOrder({ forceRefresh: false, previewAfter: true });
     });
 
     els.key.addEventListener("change", saveSettings);
     els.order.addEventListener("change", saveSettings);
   }
 
-  function restoreSavedSettings() {
-    els.key.value = localStorage.getItem(STORAGE.key) || "";
-    els.order.value = localStorage.getItem(STORAGE.order) || "maps-uk1";
-    els.layer.value = localStorage.getItem(STORAGE.layer) || "rainfall";
+  async function bootstrap() {
+    const apiKey = getApiKey();
+    const orderId = getOrderId();
+
+    if (!apiKey || !orderId) {
+      setStatus("Setup needed", "Paste the Map Images key and API Order ID once. They will be saved only in this browser.");
+      showSettings(true);
+      return;
+    }
+
+    const cached = readCachedFiles(orderId);
+    if (cached?.length) {
+      fileIds = cached;
+      rebuildLayerFiles();
+      setStatus("Using cached order list", `${fileIds.length} file(s) available locally. No metadata request made.`);
+      await previewSelectedFile();
+      return;
+    }
+
+    await loadOrder({ forceRefresh: false, previewAfter: true });
   }
 
   function saveSettings() {
-    const apiKey = els.key.value.trim();
+    const apiKey = getApiKey();
     const orderId = normaliseOrderId(els.order.value);
+
     if (apiKey) localStorage.setItem(STORAGE.key, apiKey);
     if (orderId) localStorage.setItem(STORAGE.order, orderId);
-    localStorage.setItem(STORAGE.layer, els.layer.value);
+
     els.order.value = orderId || els.order.value.trim();
+    localStorage.setItem(STORAGE.layer, selectedLayer);
   }
 
-  function forgetSettings() {
-    clearPreviewUrl();
-    const orderId = normaliseOrderId(els.order.value);
+  function forgetSavedKey() {
+    clearImageUrl();
+    const orderId = getOrderId();
     localStorage.removeItem(STORAGE.key);
     localStorage.removeItem(STORAGE.order);
     localStorage.removeItem(STORAGE.layer);
     localStorage.removeItem(STORAGE.timeStep);
     if (orderId) localStorage.removeItem(cacheKey(orderId));
+
+    fileIds = [];
+    layerFiles = [];
+    timeSteps = [];
+    selectedFileId = "";
     els.key.value = "";
-    els.output.textContent = "Saved key/order removed. Paste the key again when needed.";
+    els.order.value = "maps-uk1";
+    els.image.hidden = true;
+    els.placeholder.hidden = false;
+    els.frameSlider.disabled = true;
+    setStatus("Saved key removed", "Paste the Map Images key again when needed. Cached file list was removed for the current order.");
+    updateSavedNote("Saved key/order removed from this browser.");
   }
 
-  function showSavedState(message = "") {
-    const hasKey = Boolean(localStorage.getItem(STORAGE.key));
-    const orderId = localStorage.getItem(STORAGE.order) || "not saved";
-    els.storageNote.textContent = message || `Local storage: ${hasKey ? "key saved" : "no key saved"}; order: ${orderId}. Nothing is committed to GitHub.`;
-  }
-
-  async function listOrder({ forceRefresh, previewAfter }) {
-    const apiKey = els.key.value.trim();
-    const orderId = normaliseOrderId(els.order.value);
+  async function loadOrder({ forceRefresh, previewAfter }) {
+    const apiKey = getApiKey();
+    const orderId = getOrderId();
 
     if (!apiKey || !orderId) {
-      els.output.textContent = "Paste a Map Images API key and API Order ID first.";
+      setStatus("Setup needed", "Paste a Map Images key and API Order ID first.");
+      showSettings(true);
       return;
     }
 
     saveSettings();
-    showSavedState();
-    els.testButton.disabled = true;
-    els.refreshButton.disabled = true;
-    els.previewButton.disabled = true;
+    updateSavedNote();
+    disableButtons(true);
 
     try {
       const cached = !forceRefresh ? readCachedFiles(orderId) : null;
       if (cached?.length) {
         fileIds = cached;
-        rebuildTimeStepOptions();
-        renderFileSelectionSummary(`Using cached file list: ${fileIds.length} file(s). No new order-list request was made.`);
+        rebuildLayerFiles();
+        setStatus("Using cached order list", `${fileIds.length} file(s) available locally. No new order-list request was made.`);
         if (previewAfter) await previewSelectedFile();
         return;
       }
 
-      els.output.textContent = "Listing Met Office latest order filesâ¦";
+      setStatus("Listing order", "Fetching the latest order file list once, then caching it locally.");
       const detailUrl = `${METOFFICE_MAP_IMAGES_BASE}/orders/${encodeURIComponent(orderId)}/latest?detail=MINIMAL`;
       const response = await fetch(detailUrl, {
         headers: {
@@ -155,7 +219,7 @@
       });
 
       if (!response.ok) {
-        throw new Error(`Met Office latest-order request returned HTTP ${response.status}. If the browser reports CORS, this provider needs a proxy/native layer.`);
+        throw new Error(`Met Office latest-order request returned HTTP ${response.status}.`);
       }
 
       const json = await response.json();
@@ -163,21 +227,215 @@
       fileIds = files.map(getFileId).filter(Boolean);
 
       if (!fileIds.length) {
-        els.output.textContent = `Order request worked, but no files were found.\n\nRaw keys: ${Object.keys(json).join(", ")}`;
-        return;
+        throw new Error(`Order request worked, but no files were found. Raw keys: ${Object.keys(json).join(", ")}`);
       }
 
       writeCachedFiles(orderId, fileIds);
-      rebuildTimeStepOptions();
-      renderFileSelectionSummary(`Order OK. ${fileIds.length} file(s) listed and cached locally. This was one metadata request, not ${fileIds.length} image downloads.`);
+      rebuildLayerFiles();
+      setStatus("Order OK", `${fileIds.length} file(s) listed and cached. This was one metadata request, not ${fileIds.length} image downloads.`);
       if (previewAfter) await previewSelectedFile();
     } catch (error) {
-      els.output.textContent = error.message;
+      setStatus("Met Office error", error.message);
+      showSettings(true);
     } finally {
-      els.testButton.disabled = false;
-      els.refreshButton.disabled = false;
-      els.previewButton.disabled = Boolean(!selectedFileId);
+      disableButtons(false);
     }
+  }
+
+  function setActiveLayer(layer, { preview }) {
+    if (!LAYERS[layer]) layer = "rainfall";
+    selectedLayer = layer;
+    localStorage.setItem(STORAGE.layer, selectedLayer);
+
+    els.layerButtons.forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.layer === selectedLayer);
+    });
+
+    els.image.classList.remove("is-rainfall", "is-cloud", "is-pressure", "is-temperature");
+    els.image.classList.add(`is-${selectedLayer}`);
+    els.frameTitle.textContent = LAYERS[selectedLayer].label;
+    els.legend.innerHTML = `<strong>${escapeHtml(LAYERS[selectedLayer].title)}</strong><span>${escapeHtml(LAYERS[selectedLayer].legend)}</span>`;
+
+    rebuildLayerFiles();
+    if (preview) previewSelectedFile();
+  }
+
+  function rebuildLayerFiles() {
+    const matcher = LAYERS[selectedLayer].matcher;
+    layerFiles = fileIds.filter((fileId) => matcher.test(fileId));
+    timeSteps = unique(layerFiles.map(extractTimeStep)).filter(Boolean).sort(sortTimeSteps);
+
+    if (!timeSteps.length) {
+      selectedFileId = "";
+      els.frameSlider.disabled = true;
+      els.frameSlider.min = "0";
+      els.frameSlider.max = "0";
+      els.frameSlider.value = "0";
+      els.frameLabel.textContent = fileIds.length ? "No matching files" : "Load order first";
+      if (fileIds.length) setStatus("Layer unavailable", LAYERS[selectedLayer].empty);
+      return;
+    }
+
+    if (!timeSteps.includes(selectedStep)) {
+      selectedStep = timeSteps.includes("+00") ? "+00" : timeSteps[0];
+      localStorage.setItem(STORAGE.timeStep, selectedStep);
+    }
+
+    chooseSelectedFile();
+    updateFrameUi();
+  }
+
+  function chooseSelectedFile() {
+    selectedFileId = layerFiles.find((fileId) => extractTimeStep(fileId) === selectedStep) || layerFiles[0] || "";
+  }
+
+  function updateFrameUi() {
+    const index = Math.max(0, timeSteps.indexOf(selectedStep));
+    els.frameSlider.disabled = timeSteps.length <= 1;
+    els.frameSlider.min = "0";
+    els.frameSlider.max = String(Math.max(0, timeSteps.length - 1));
+    els.frameSlider.value = String(index);
+    els.frameLabel.textContent = selectedFileId ? `Model ${selectedStep} Â· ${selectedFileId}` : "No selected file";
+  }
+
+  function bumpFrame(delta) {
+    if (!timeSteps.length) return;
+    const currentIndex = Math.max(0, timeSteps.indexOf(selectedStep));
+    const nextIndex = clamp(currentIndex + delta, 0, timeSteps.length - 1);
+    selectedStep = timeSteps[nextIndex];
+    localStorage.setItem(STORAGE.timeStep, selectedStep);
+    chooseSelectedFile();
+    updateFrameUi();
+    previewSelectedFile();
+  }
+
+  async function previewSelectedFile() {
+    const apiKey = getApiKey();
+    const orderId = getOrderId();
+
+    if (loadingImage) return;
+    if (!apiKey || !orderId) {
+      setStatus("Setup needed", "Paste a Map Images key and API Order ID first.");
+      showSettings(true);
+      return;
+    }
+
+    if (!fileIds.length) {
+      await loadOrder({ forceRefresh: false, previewAfter: true });
+      return;
+    }
+
+    rebuildLayerFiles();
+    if (!selectedFileId) {
+      setStatus("No image selected", LAYERS[selectedLayer].empty);
+      return;
+    }
+
+    loadingImage = true;
+    disableButtons(true);
+    setStatus("Loading image", `${LAYERS[selectedLayer].label} Â· ${selectedFileId}`);
+
+    try {
+      const pngUrl = `${METOFFICE_MAP_IMAGES_BASE}/orders/${encodeURIComponent(orderId)}/latest/${encodeURIComponent(selectedFileId)}/data?includeLand=false`;
+      const response = await fetch(pngUrl, {
+        headers: {
+          Accept: "image/png",
+          apikey: apiKey
+        }
+      });
+      if (!response.ok) throw new Error(`Met Office image request returned HTTP ${response.status}`);
+
+      const rawBlob = await response.blob();
+      const previewBlob = selectedLayer === "rainfall" ? await repaintRainfallBlob(rawBlob) : rawBlob;
+      clearImageUrl();
+      imageObjectUrl = URL.createObjectURL(previewBlob);
+      els.image.src = imageObjectUrl;
+      els.image.alt = `Met Office ${LAYERS[selectedLayer].label} map image: ${selectedFileId}`;
+      els.image.hidden = false;
+      els.placeholder.hidden = true;
+      setStatus(
+        "Preview loaded",
+        selectedLayer === "rainfall"
+          ? `${LAYERS[selectedLayer].label} Â· ${selectedFileId}. Atlas blue-only rainfall colour applied in-browser. One image request made for this selected frame only.`
+          : `${LAYERS[selectedLayer].label} Â· ${selectedFileId}. One image request made for this selected frame only.`
+      );
+    } catch (error) {
+      setStatus("Image error", error.message);
+    } finally {
+      loadingImage = false;
+      disableButtons(false);
+    }
+  }
+
+  async function repaintRainfallBlob(blob) {
+    const bitmap = await createImageBitmap(blob);
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close?.();
+
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const a = data[i + 3];
+
+      if (a < 8 || isBackground(r, g, b) || isLandMaskGreen(r, g, b)) {
+        data[i + 3] = 0;
+        continue;
+      }
+
+      const intensity = estimateRainIntensity(r, g, b);
+      if (intensity < 0.06) {
+        data[i + 3] = 0;
+        continue;
+      }
+
+      const colour = atlasRainColour(intensity);
+      data[i] = colour[0];
+      data[i + 1] = colour[1];
+      data[i + 2] = colour[2];
+      data[i + 3] = Math.round(colour[3] * a);
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    return await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  }
+
+  function isBackground(r, g, b) {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    return max > 238 && min > 226;
+  }
+
+  function isLandMaskGreen(r, g, b) {
+    return g > 155 && r < 125 && b < 145 && g - r > 55 && g - b > 45;
+  }
+
+  function estimateRainIntensity(r, g, b) {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const saturation = (max - min) / 255;
+    const darkness = 1 - ((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255);
+    const blueSignal = Math.max(0, b - r) / 255;
+    const cyanSignal = Math.max(0, Math.min(g, b) - r) / 255;
+    const warmSignal = Math.max(0, r - b) / 255;
+
+    return clamp((darkness * 0.58) + (saturation * 0.22) + (blueSignal * 0.18) + (cyanSignal * 0.12) + (warmSignal * 0.08), 0, 1);
+  }
+
+  function atlasRainColour(intensity) {
+    if (intensity < 0.16) return [181, 246, 255, 0.26];
+    if (intensity < 0.31) return [111, 230, 255, 0.42];
+    if (intensity < 0.49) return [49, 190, 255, 0.58];
+    if (intensity < 0.68) return [0, 132, 255, 0.72];
+    if (intensity < 0.84) return [0, 78, 224, 0.84];
+    return [226, 250, 255, 0.94];
   }
 
   function findFiles(json) {
@@ -190,105 +448,6 @@
   function getFileId(file) {
     if (typeof file === "string") return file;
     return file?.fileId || file?.filename || file?.name || file?.id || "";
-  }
-
-  function rebuildTimeStepOptions() {
-    const layerFiles = getLayerFiles();
-    const steps = unique(layerFiles.map(extractTimeStep)).filter(Boolean).sort(sortTimeSteps);
-    const savedStep = localStorage.getItem(STORAGE.timeStep);
-
-    els.timeStep.innerHTML = "";
-    if (!steps.length) {
-      const option = document.createElement("option");
-      option.value = "";
-      option.textContent = fileIds.length ? "No time steps matched" : "Load order first";
-      els.timeStep.appendChild(option);
-      els.timeStep.disabled = true;
-      selectedFileId = "";
-      return;
-    }
-
-    for (const step of steps) {
-      const option = document.createElement("option");
-      option.value = step;
-      option.textContent = step;
-      els.timeStep.appendChild(option);
-    }
-
-    els.timeStep.disabled = false;
-    els.timeStep.value = steps.includes(savedStep) ? savedStep : steps[0];
-    localStorage.setItem(STORAGE.timeStep, els.timeStep.value);
-    chooseSelectedFile();
-  }
-
-  function getLayerFiles() {
-    const matcher = LAYER_MATCHERS[els.layer.value] || LAYER_MATCHERS.all;
-    return fileIds.filter((fileId) => matcher.test(fileId));
-  }
-
-  function chooseSelectedFile() {
-    const layerFiles = getLayerFiles();
-    const step = els.timeStep.value;
-    selectedFileId = layerFiles.find((fileId) => extractTimeStep(fileId) === step) || layerFiles[0] || "";
-    els.previewButton.disabled = Boolean(!selectedFileId);
-  }
-
-  function renderFileSelectionSummary(prefix = "") {
-    chooseSelectedFile();
-    const layerFiles = getLayerFiles();
-    const sample = layerFiles.slice(0, 8).map((name) => `- ${name}`).join("\n");
-    const text = [
-      prefix,
-      `Layer: ${els.layer.options[els.layer.selectedIndex]?.textContent || els.layer.value}`,
-      `Matching files: ${layerFiles.length} of ${fileIds.length}`,
-      `Selected file: ${selectedFileId || "none"}`,
-      sample ? `\nSample matches:\n${sample}` : ""
-    ].filter(Boolean).join("\n");
-    els.output.textContent = text;
-  }
-
-  async function previewSelectedFile() {
-    const apiKey = els.key.value.trim();
-    const orderId = normaliseOrderId(els.order.value);
-    chooseSelectedFile();
-
-    if (!apiKey || !orderId || !selectedFileId) {
-      els.output.textContent = "Load the order first, then choose a layer/time step.";
-      return;
-    }
-
-    els.previewButton.disabled = true;
-    renderFileSelectionSummary("Loading selected preview imageâ¦");
-
-    try {
-      const pngUrl = `${METOFFICE_MAP_IMAGES_BASE}/orders/${encodeURIComponent(orderId)}/latest/${encodeURIComponent(selectedFileId)}/data?includeLand=true`;
-      const response = await fetch(pngUrl, {
-        headers: {
-          Accept: "image/png",
-          apikey: apiKey
-        }
-      });
-      if (!response.ok) throw new Error(`Met Office image request returned HTTP ${response.status}`);
-
-      const blob = await response.blob();
-      clearPreviewUrl();
-      previewObjectUrl = URL.createObjectURL(blob);
-
-      const summary = document.createElement("div");
-      summary.textContent = `Preview loaded.\nSelected file: ${selectedFileId}\n\nOne image request was made for this selected file only.`;
-
-      const img = document.createElement("img");
-      img.src = previewObjectUrl;
-      img.alt = `Met Office Map Images API preview: ${selectedFileId}`;
-
-      els.output.innerHTML = "";
-      els.output.appendChild(summary);
-      els.output.appendChild(img);
-    } catch (error) {
-      els.output.textContent = error.message;
-    } finally {
-      els.previewButton.disabled = false;
-    }
   }
 
   function extractTimeStep(fileId) {
@@ -309,6 +468,14 @@
 
   function normaliseOrderId(value) {
     return String(value || "").trim().toLowerCase().replace(/\s+/g, "-");
+  }
+
+  function getApiKey() {
+    return els.key.value.trim();
+  }
+
+  function getOrderId() {
+    return normaliseOrderId(els.order.value);
   }
 
   function cacheKey(orderId) {
@@ -339,17 +506,43 @@
     }
   }
 
-  function clearPreviewUrl() {
-    if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
-    previewObjectUrl = "";
+  function updateSavedNote(message = "") {
+    const hasKey = Boolean(localStorage.getItem(STORAGE.key));
+    const orderId = localStorage.getItem(STORAGE.order) || "not saved";
+    els.storageNote.textContent = message || `Local storage: ${hasKey ? "key saved" : "no key saved"}; order: ${orderId}. Nothing is committed to GitHub.`;
+  }
+
+  function setStatus(title, body) {
+    els.status.innerHTML = `<strong>${escapeHtml(title)}</strong>${escapeHtml(body)}`;
+  }
+
+  function showSettings(show) {
+    els.settingsPanel.hidden = !show;
+  }
+
+  function disableButtons(disabled) {
+    els.refreshButton.disabled = disabled;
+    els.saveButton.disabled = disabled;
+    els.prevFrame.disabled = disabled || !timeSteps.length;
+    els.nextFrame.disabled = disabled || !timeSteps.length;
+    els.layerButtons.forEach((button) => { button.disabled = disabled; });
+  }
+
+  function clearImageUrl() {
+    if (imageObjectUrl) URL.revokeObjectURL(imageObjectUrl);
+    imageObjectUrl = "";
   }
 
   function unique(values) {
     return [...new Set(values)];
   }
 
-  function escapeHtmlFallback(value) {
-    return String(value).replace(/[&<>"]/g, (char) => ({
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>\"]/g, (char) => ({
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
